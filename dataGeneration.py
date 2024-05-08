@@ -530,6 +530,82 @@ class SIP_Data(object):
 
 
 
+def categorize_values(values, critical_values):
+	"""
+	Categorize each value in `values` based on the critical thresholds defined in `critical_values`.
+
+	Parameters:
+	- values (list of float): The function values to categorize.
+	- critical_values (list of float): The critical values defining the thresholds.
+
+	Returns:
+	- list of int: The list of labels corresponding to the categories for each value.
+	"""
+	# Add a very large number to handle the upper boundary easily
+	critical_values = sorted(critical_values) + [float('inf')]
+
+	def find_label(value):
+		"""Determine the label for a single value based on critical_values."""
+		for i, threshold in enumerate(critical_values):
+			if value < threshold:
+				return i
+		return len(critical_values)  # This line is theoretically unreachable
+
+	# Apply the find_label function to each value in the input list
+	labels = [find_label(value) for value in values]
+	return labels
+
+
+class SIP_Data_Multi(object):
+	'''
+	function_y and function_gradient takes 1 vector argument 
+	'''
+	def __init__(self, function_y, function_gradient,critical_values, dim,*domain):
+		if len(domain) != dim:
+			raise ValueError(f"Expected {dim} domain intervals, but got {len(domain)}")
+		
+		# Check if all arguments are tuples with two elements
+		for arg in domain:
+			if len(arg) != 2:
+				raise TypeError("Each domain argument must be a tuple of two numbers (low, high)")
+
+		self.critical_values = critical_values
+		self.dim = dim
+		self.domain = domain
+		self.function_y = function_y
+		self.function_gradient = function_gradient
+		self.df = []
+		self.Gradient = []
+
+
+	def generate_Uniform(self,n, Initialization = True):
+		points = np.array([np.random.uniform(low, high, n) for low, high in self.domain]).T
+
+		self.df = pd.DataFrame(points, columns = [f'X{i+1}' for i in range(self.dim)])
+
+		Z = self.df.apply(self.function_y, axis = 1)
+		self.Gradient = self.df.apply(self.function_gradient, axis = 1)
+		self.df['Label'] = categorize_values(Z, self.critical_values)
+		self.df['f'] = Z
+		
+
+	def generate_POF(self,n,CONST_a ,iniPoints = 10, max_iterations  = 1000, max_miss = 1000,sampleCriteria = 'k-dDarts', Initialization = True):
+		if Initialization == True:
+			self.POFdarts = POFdarts( self.function_y, self.function_gradient , CONST_a,  self.critical_values , max_iterations  = max_iterations, max_miss = max_miss)
+			self.POFdarts.Initialize(iniPoints, self.dim , self.domain)
+		self.POFdarts.Generate_data( n - iniPoints, self.dim , self.domain, sampleCriteria = sampleCriteria)
+		self.Gradient = self.POFdarts.Q
+
+		#self.df = pd.DataFrame(data={"X":np.array(self.POFdarts.df)[:,0],"Y":np.array(self.POFdarts.df)[:,1]})
+		self.df = pd.DataFrame(np.array(self.POFdarts.df), columns = [f'X{i+1}' for i in range(self.dim)])
+
+		self.df['Label'] = categorize_values(self.POFdarts.y, self.critical_values)
+		self.df['f'] = self.POFdarts.y
+
+
+
+
+
 
 
 
