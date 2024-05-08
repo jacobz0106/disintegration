@@ -172,9 +172,9 @@ def main():
 	event = [[1.0,1.2],[2.8,3.1],[1.0,2.0]]
 	domains = [[0.7,1.5], [2.75,3.25], [1.5,1.5]]
 	critical_values = np.linspace(3.0, 4.0, 5)
-	N = [100,200, 300]
-	accuracyComparison(event, N, domains, critical_values,repeat  = 2,sample_method = 'POF')
-	accuracyComparison(event, N, domains, critical_values,repeat  = 2,sample_method = 'Random')
+	N = [100,200, 300, 400,600,800,1000]
+	accuracyComparison(event, N, domains, critical_values,repeat  = 20,sample_method = 'POF')
+	accuracyComparison(event, N, domains, critical_values,repeat  = 20,sample_method = 'Random')
 
 
 
