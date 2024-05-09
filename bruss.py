@@ -73,9 +73,6 @@ def brusselator2Dplot(n):
 	critical_values = np.linspace(3.0, 4.0, 10)
 	dataSIP = SIP_Data_Multi(integral_3D, DQ_Dlambda_3D, critical_values, len(domains) , *domains)
 
-	dataSIP.generate_Uniform(n)
-	print(dataSIP.df)
-	return
 
 	dataSIP.generate_POF(n = n, CONST_a = 1 ,iniPoints = 10, sampleCriteria = 'k-dDarts')
 	print(np.unique(np.array(dataSIP.df['Label'])))
@@ -116,7 +113,7 @@ def check_points_in_nd_domain(points, lower_bounds, upper_bounds):
 
 
 
-def accuracyComparison(event, N, domains, critical_values,nTest = 500, nEstimation = 2000, repeat  = 20, sample_method = 'POF'):
+def accuracyComparison(event, N, domains, critical_values,nTest = 2000, repeat  = 20, sample_method = 'POF'):
 	accuracyMatrix = np.zeros( shape = (repeat, len(N)) )
 	estimationMatrix = np.zeros( shape = (repeat, len(N)) )
 	for i, n in enumerate(N):
@@ -146,11 +143,10 @@ def accuracyComparison(event, N, domains, critical_values,nTest = 500, nEstimati
 			accuracyMatrix[r, i] = predictionAccuracy
 
 
-			# Event estimation
-			points = np.array([np.random.uniform(low, high, n) for low, high in domains]).T
+			# Event estimation/ Change points to previous randomly sampled
 
-			Labels = best_model.predict(points)
-			Within_events = check_points_in_nd_domain(points, np.array(event)[:,0], np.array(event)[:,1])
+			Labels = best_model.predict(X_test)
+			Within_events = check_points_in_nd_domain(np.array(X_test), np.array(event)[:,0], np.array(event)[:,1])
 
 			event_probability = 0
 			equivalenceSpace_probability = 1/(len(critical_values)+1)
@@ -159,8 +155,8 @@ def accuracyComparison(event, N, domains, critical_values,nTest = 500, nEstimati
 				event_probability += equivalenceSpace_probability * disintegrationConditional
 			estimationMatrix[r, i] = predictionAccuracy
 			print('n,r:',[n,r])
-	filenameTrain = f'../Results/BrusselatorSimulation/Train_accuracy_{nEstimation}_Brusselator2D_interval_{len(critical_values)+1}_{sample_method}.csv'
-	filenamePredict = f'../Results/BrusselatorSimulation/Estimation_{nEstimation}_Brusselator2D_interval_{len(critical_values)+1}_{sample_method}.csv'
+	filenameTrain = f'../Results/BrusselatorSimulation/Train_accuracy_{nTest}_Brusselator2D_interval_{len(critical_values)+1}_{sample_method}.csv'
+	filenamePredict = f'../Results/BrusselatorSimulation/Estimation_{nTest}_Brusselator2D_interval_{len(critical_values)+1}_{sample_method}.csv'
 	header_string = ','.join(str(i) for i in N)
 	np.savetxt(filenameTrain, accuracyMatrix, delimiter=",", header = header_string)
 	np.savetxt(filenamePredict, estimationMatrix, delimiter=",", header = header_string)
@@ -175,7 +171,6 @@ def main():
 	N = [100,200, 300, 400,600,800,1000]
 	accuracyComparison(event, N, domains, critical_values,repeat  = 20,sample_method = 'POF')
 	accuracyComparison(event, N, domains, critical_values,repeat  = 20,sample_method = 'Random')
-
 
 
 
