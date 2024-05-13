@@ -153,7 +153,7 @@ def accuracyComparison(event, N, domains, critical_values,nTest = 2000, repeat  
 			for equivalenceSpace in np.unique(Labels):
 				disintegrationConditional =  np.sum(np.logical_and(Labels == equivalenceSpace, Within_events))/np.sum(Labels == equivalenceSpace)
 				event_probability += equivalenceSpace_probability * disintegrationConditional
-			estimationMatrix[r, i] = predictionAccuracy
+			estimationMatrix[r, i] = event_probability
 			print('n,r:',[n,r])
 	filenameTrain = f'../Results/BrusselatorSimulation/Train_accuracy_{nTest}_Brusselator2D_interval_{len(critical_values)+1}_{sample_method}.csv'
 	filenamePredict = f'../Results/BrusselatorSimulation/Estimation_{nTest}_Brusselator2D_interval_{len(critical_values)+1}_{sample_method}.csv'
