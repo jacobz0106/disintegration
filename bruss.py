@@ -201,7 +201,7 @@ def main():
 	N = [30,40,50,60,70,80,100,150, 200, 300, 400,600,800,1000]
 	#N = [200,200,200,200,200,200]
 	accuracyComparison(event, N, domains, critical_values,repeat  = 20,nTest = 2000, sample_method = 'POF')
-	#accuracyComparison(event, N, domains, critical_values,repeat  = 20,sample_method = 'Random')
+	accuracyComparison(event, N, domains, critical_values,repeat  = 20,sample_method = 'Random')
 
 
 
