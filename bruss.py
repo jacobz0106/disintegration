@@ -116,8 +116,14 @@ def check_points_in_nd_domain(points, lower_bounds, upper_bounds):
 def accuracyComparison(event, N, domains, critical_values,nTest = 2000, repeat  = 20, sample_method = 'POF'):
 	accuracyMatrix = np.zeros( shape = (repeat, len(N)) )
 	estimationMatrix = np.zeros( shape = (repeat, len(N)) )
+	testSIP = SIP_Data_Multi(integral_3D, DQ_Dlambda_3D, critical_values, len(domains) , *domains)
+	testSIP.generate_Uniform(nTest)
+	X_test = testSIP.df.iloc[:, :-2].values
+	y_test = testSIP.df['Label'].values
+
 	for i, n in enumerate(N):
 		for r in range(repeat):
+			print(n)
 			mlp_classifier = MLPClassifier()
 			dataSIP = SIP_Data_Multi(integral_3D, DQ_Dlambda_3D, critical_values, len(domains) , *domains)
 			if sample_method == 'POF':
@@ -133,16 +139,40 @@ def accuracyComparison(event, N, domains, critical_values,nTest = 2000, repeat  
 			X_train = dfTrain
 			y_train = Label
 
-			dataSIP.generate_Uniform(nTest)
-			X_test = dataSIP.df.iloc[:, :-2].values
-			y_test = dataSIP.df['Label'].values
+
+			# #varification purpose
+			# color_dic = create_color_dict(np.max(np.unique(np.array(dataSIP.df['Label']))), 'rainbow')
+			# fig = plt.figure()
+
+			# # Add a 3D subplot
+			# ax1 = fig.add_subplot()
+			# plt.scatter(dataSIP.df['X1'], dataSIP.df['X2'], c = [color_dic[x] for x in dataSIP.df['Label']])
+			# for c, l, radius in zip(dataSIP.df[['X1','X2']].values, dataSIP.df['Label'],dataSIP.POFdarts.radius):
+			# 	circle = plt.Circle(c, radius, facecolor = color_dic[l], edgecolor = 'black', alpha = 0.5)
+			# 	ax1.add_patch(circle)
+
+
 
 			best_model = perform_grid_search_cv(mlp_classifier, param_grid_MLP, X_train,y_train)
 			trainAccuracy = np.sum(best_model.predict(X_train) == y_train)/len(y_train)
+			print(trainAccuracy)
 			predictionAccuracy = np.sum(best_model.predict(X_test) == y_test)/len(y_test)
+			print(predictionAccuracy)
 			accuracyMatrix[r, i] = predictionAccuracy
 
-
+			# if predictionAccuracy < 0.6:
+			# 	plt.title(str(predictionAccuracy))
+			# 	fig.show()
+			# 	fig = plt.figure()
+			# 	plt.title(str(predictionAccuracy))
+			# 	plt.scatter(dataSIP.df['X1'], dataSIP.df['X2'], c = best_model.predict(X_test))
+			# 	fig.show()
+			# 	best_model = perform_grid_search_cv(mlp_classifier, param_grid_MLP, X_train,y_train)
+			# 	trainAccuracy = np.sum(best_model.predict(X_train) == y_train)/len(y_train)
+			# 	print(trainAccuracy)
+			# 	predictionAccuracy = np.sum(best_model.predict(X_test) == y_test)/len(y_test)
+			# 	print(predictionAccuracy)
+			# 	accuracyMatrix[r, i] = predictionAccuracy
 			# Event estimation/ Change points to previous randomly sampled
 
 			Labels = best_model.predict(X_test)
@@ -167,10 +197,11 @@ def accuracyComparison(event, N, domains, critical_values,nTest = 2000, repeat  
 def main():
 	event = [[1.0,1.2],[2.8,3.1],[1.0,2.0]]
 	domains = [[0.7,1.5], [2.75,3.25], [1.5,1.5]]
-	critical_values = np.linspace(3.0, 4.0, 5)
-	N = [100,200, 300, 400,600,800,1000]
-	accuracyComparison(event, N, domains, critical_values,repeat  = 20,sample_method = 'POF')
-	accuracyComparison(event, N, domains, critical_values,repeat  = 20,sample_method = 'Random')
+	critical_values = np.linspace(3.0, 4.0, 10)
+	N = [30,40,50,60,70,80,100,150, 200, 300, 400,600,800,1000]
+	#N = [200,200,200,200,200,200]
+	accuracyComparison(event, N, domains, critical_values,repeat  = 20,nTest = 2000, sample_method = 'POF')
+	#accuracyComparison(event, N, domains, critical_values,repeat  = 20,sample_method = 'Random')
 
 
 
