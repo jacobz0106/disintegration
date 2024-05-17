@@ -6,6 +6,8 @@ from sklearn.model_selection import GridSearchCV, cross_val_score, KFold, train_
 
 from sklearn.neural_network import MLPRegressor
 
+import sys
+
 # Function to create model, required for KerasRegressor
 def sequential_model(layers=1, neurons=10,activation = 'relu'):
     model = Sequential()
@@ -300,14 +302,14 @@ def accuracyComparisonNaive(event, N, domains, critical_values, repeat  = 20):
 
 def main():
 	sample_method = sys.argv[1]
-	event = [[1.0,1.1],[2.9,3.0],[1.7,1.8]]
+	event = [[1.2,1.4],[2.8,3.1],[0.7,1.8]]
 	domains = [[0.7,1.5], [2.75,3.25], [0,2]]
 	# Generate num_intervals + 2 points (to include and then remove start and end)
 	numIntervals = 10
 	critical_values = np.linspace(2.3, 4.1, numIntervals + 2)[1:-1]
-	N = [30,40,50,60,70,80,100,150, 200, 300, 400,600,800,1000]
+	N = [30,40,50,60,70,80,90, 100,120,140,160,180, 200,250,300, 400,600,800,1000]
 	accuracyComparison(event, N, domains, critical_values,repeat  = 20,nTest = 2000, sample_method = sample_method)
-	#accuracyComparisonNaive(event, N, domains, critical_values, repeat = 10)
+	#accuracyComparisonNaive(event, N, domains, critical_values, repeat = 20)
 
 
 
