@@ -4,6 +4,32 @@ import matplotlib
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import GridSearchCV, cross_val_score, KFold, train_test_split
 
+from sklearn.neural_network import MLPRegressor
+
+# Function to create model, required for KerasRegressor
+def sequential_model(layers=1, neurons=10,activation = 'relu'):
+    model = Sequential()
+    model.add(Dense(neurons, input_dim=3, activation=activation))  # Assuming input features are 10
+    for i in range(layers-1):
+        model.add(Dense(neurons, activation='relu'))
+    model.add(Dense(1, activation='linear'))  # Output layer for regression
+    model.compile(loss='mean_squared_error', optimizer='adam')
+    return model
+
+# Wrap the model with KerasRegressor
+
+# Define the grid search parameters
+param_grid_nn = {
+    'hidden_layer_sizes': [(50, 50), (100, 100), (50, 100, 50)],
+    'activation': ['tanh', 'relu'],
+    'solver': ['sgd', 'adam'],
+    'learning_rate_init': [0.001, 0.01, 0.1],
+    'alpha': [0.0001, 0.001],
+    'max_iter':[500,1000,1500], 
+}
+
+
+
 ## - MLPClassifier:
 param_grid_MLP = {
   'hidden_layer_sizes': [(50, 50), (100, 100), (50, 100, 50)],  # Architecture of hidden layers
@@ -12,6 +38,7 @@ param_grid_MLP = {
   'learning_rate_init': [0.001, 0.01, 0.1],  # Initial learning rate
   'max_iter': [3000, 5000, 10000],  # Maximum number of iterations
 }
+
 
 
 def perform_grid_search_cv(model, param_grid, X, y, cv=5):
@@ -123,11 +150,10 @@ def accuracyComparison(event, N, domains, critical_values,nTest = 2000, repeat  
 
 	for i, n in enumerate(N):
 		for r in range(repeat):
-			print(n)
 			mlp_classifier = MLPClassifier()
 			dataSIP = SIP_Data_Multi(integral_3D, DQ_Dlambda_3D, critical_values, len(domains) , *domains)
 			if sample_method == 'POF':
-				dataSIP.generate_POF(n = n, CONST_a = 1 ,iniPoints = 10, sampleCriteria = 'k-dDarts')
+				dataSIP.generate_POF(n = n, CONST_a = 1 ,iniPoints = 5, sampleCriteria = 'k-dDarts')
 			else:
 				dataSIP.generate_Uniform(n)
 
@@ -194,15 +220,94 @@ def accuracyComparison(event, N, domains, critical_values,nTest = 2000, repeat  
 
 
 
-def main():
-	event = [[1.0,1.2],[2.8,3.1],[1.0,2.0]]
-	domains = [[0.7,1.5], [2.75,3.25], [1.5,1.5]]
-	critical_values = np.linspace(3.0, 4.0, 10)
-	N = [30,40,50,60,70,80,100,150, 200, 300, 400,600,800,1000]
-	#N = [200,200,200,200,200,200]
-	accuracyComparison(event, N, domains, critical_values,repeat  = 20,nTest = 2000, sample_method = 'POF')
-	accuracyComparison(event, N, domains, critical_values,repeat  = 20,sample_method = 'Random')
 
+
+def accuracyComparisonRegression(event, N, domains, critical_values,nTest = 2000, repeat  = 20):
+	mseMatrix = np.zeros( shape = (repeat, len(N)) )
+	estimationMatrix = np.zeros( shape = (repeat, len(N)) )
+	testSIP = SIP_Data_Multi(integral_3D, DQ_Dlambda_3D, critical_values, len(domains) , *domains)
+	testSIP.generate_Uniform(nTest)
+	X_test = testSIP.df.iloc[:, :-2].values
+	y_test = testSIP.df['f']
+
+	for i, n in enumerate(N):
+		for r in range(repeat):
+			nn_model = MLPRegressor(random_state=1)
+			dataSIP = SIP_Data_Multi(integral_3D, DQ_Dlambda_3D, critical_values, len(domains) , *domains)
+			dataSIP.generate_Uniform(n)
+			dfTrain = dataSIP.df.iloc[:, :-2].values
+
+			X_train = dfTrain
+			y_train = dataSIP.df['f']
+
+			grid = GridSearchCV(estimator=nn_model, param_grid=param_grid_nn, scoring='r2',n_jobs=1, cv=5)
+			grid_result = grid.fit(X_train, y_train)  # X and y are your data
+			best_model = grid_search.best_estimator_
+
+
+			MSE_train = np.mean((best_model.predict(X_train) - y_train)**2)
+			MSE_pred = np.mean((best_model.predict(X_test) - y_test)**2)
+			mseMatrix[r, i] = MSE_pred
+			print(MSE_pred)
+
+			Labels = categorize_values(best_model.predict(X_test), critical_values)
+			Within_events = check_points_in_nd_domain(np.array(X_test), np.array(event)[:,0], np.array(event)[:,1])
+
+			event_probability = 0
+			equivalenceSpace_probability = 1/(len(critical_values)+1)
+			for equivalenceSpace in np.unique(Labels):
+				disintegrationConditional =  np.sum(np.logical_and(Labels == equivalenceSpace, Within_events))/np.sum(Labels == equivalenceSpace)
+				event_probability += equivalenceSpace_probability * disintegrationConditional
+			estimationMatrix[r, i] = event_probability
+			print(event_probability)
+			print('n,r:',[n,r])
+	filenameTrain = f'../Results/BrusselatorSimulation/Train_accuracy_{nTest}_Brusselator2D_interval_{len(critical_values)+1}_{sample_method}_Regression.csv'
+	filenamePredict = f'../Results/BrusselatorSimulation/Estimation_{nTest}_Brusselator2D_interval_{len(critical_values)+1}_{sample_method}_Regression.csv'
+	header_string = ','.join(str(i) for i in N)
+	np.savetxt(filenameTrain, mseMatrix, delimiter=",", header = header_string)
+	np.savetxt(filenamePredict, estimationMatrix, delimiter=",", header = header_string)
+
+
+def accuracyComparisonNaive(event, N, domains, critical_values, repeat  = 20):
+	mseMatrix = np.zeros( shape = (repeat, len(N)) )
+	estimationMatrix = np.zeros( shape = (repeat, len(N)) )
+
+	for i, n in enumerate(N):
+		for r in range(repeat):
+			dataSIP = SIP_Data_Multi(integral_3D, DQ_Dlambda_3D, critical_values, len(domains) , *domains)
+			dataSIP.generate_Uniform(n)
+			dfTrain = dataSIP.df.iloc[:, :-2].values
+
+			X_train = dfTrain
+			y_train = dataSIP.df['f']
+
+
+			Labels = categorize_values(y_train, critical_values)
+			Within_events = check_points_in_nd_domain(np.array(X_train), np.array(event)[:,0], np.array(event)[:,1])
+
+			event_probability = 0
+			equivalenceSpace_probability = 1/(len(critical_values)+1)
+			for equivalenceSpace in np.unique(Labels):
+				disintegrationConditional =  np.sum(np.logical_and(Labels == equivalenceSpace, Within_events))/np.sum(Labels == equivalenceSpace)
+				event_probability += equivalenceSpace_probability * disintegrationConditional
+			estimationMatrix[r, i] = event_probability
+			print('n,r:',[n,r])
+	filenamePredict = f'Results/BrusselatorSimulation/Estimation_Brusselator2D_interval_{len(critical_values)+1}_Naive.csv'
+	header_string = ','.join(str(i) for i in N)
+	np.savetxt(filenamePredict, estimationMatrix, delimiter=",", header = header_string)
+
+
+
+def main():
+	sample_method = sys.argv[1]
+	event = [[1.0,1.1],[2.9,3.0],[1.7,1.8]]
+	domains = [[0.7,1.5], [2.75,3.25], [0,2]]
+	# Generate num_intervals + 2 points (to include and then remove start and end)
+	numIntervals = 10
+	critical_values = np.linspace(2.3, 4.1, numIntervals + 2)[1:-1]
+	N = [30,40,50,60,70,80,100,150, 200, 300, 400,600,800,1000]
+	accuracyComparison(event, N, domains, critical_values,repeat  = 20,nTest = 2000, sample_method = sample_method)
+	#accuracyComparisonNaive(event, N, domains, critical_values, repeat = 10)
 
 
 
