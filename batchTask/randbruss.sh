@@ -7,4 +7,4 @@ pip install -r ../requirements.txt
 export OMP_NUM_THREADS=1
 export GRB_TOKENSERVER=license1.computecanada.ca
 echo "installation of req packages done."
-python ../bruss.py POF
+python ../bruss.py Random
