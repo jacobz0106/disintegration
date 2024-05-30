@@ -5,8 +5,19 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import GridSearchCV, cross_val_score, KFold, train_test_split
 
 from sklearn.neural_network import MLPRegressor
+from scipy.stats import truncnorm
 
 import sys
+
+
+
+trunc_a = 2.3
+trunc_b = 4.1 
+numIntervals = 20
+loc = 3.3
+scale = 0.5
+
+
 
 # Function to create model, required for KerasRegressor
 def sequential_model(layers=1, neurons=10,activation = 'relu'):
@@ -143,6 +154,7 @@ def check_points_in_nd_domain(points, lower_bounds, upper_bounds):
 
 
 def accuracyComparison(event, N, domains, critical_values,nTest = 2000, repeat  = 20, sample_method = 'POF'):
+	global trunc_a, trunc_b, numIntervals, loc, scale
 	accuracyMatrix = np.zeros( shape = (repeat, len(N)) )
 	estimationMatrix = np.zeros( shape = (repeat, len(N)) )
 	testSIP = SIP_Data_Multi(integral_3D, DQ_Dlambda_3D, critical_values, len(domains) , *domains)
@@ -207,9 +219,16 @@ def accuracyComparison(event, N, domains, critical_values,nTest = 2000, repeat  
 			Within_events = check_points_in_nd_domain(np.array(X_test), np.array(event)[:,0], np.array(event)[:,1])
 
 			event_probability = 0
-			equivalenceSpace_probability = 1/(len(critical_values)+1)
+			a, b = (trunc_a - loc) / scale, (trunc_b - loc) / scale
 			for equivalenceSpace in np.unique(Labels):
 				disintegrationConditional =  np.sum(np.logical_and(Labels == equivalenceSpace, Within_events))/np.sum(Labels == equivalenceSpace)
+
+				if equivalenceSpace == 0:
+					equivalenceSpace_probability = truncnorm.cdf( critical_values[0], a, b, loc=loc, scale=scale)
+				elif equivalenceSpace == len(critical_values):
+					equivalenceSpace_probability = 1 - truncnorm.cdf( critical_values[len(critical_values) - 1], a, b, loc=loc, scale=scale)
+				else: 
+					equivalenceSpace_probability = truncnorm.cdf( critical_values[equivalenceSpace], a, b, loc=loc, scale=scale) - truncnorm.cdf( critical_values[equivalenceSpace - 1], a, b, loc=loc, scale=scale)
 				event_probability += equivalenceSpace_probability * disintegrationConditional
 			estimationMatrix[r, i] = event_probability
 			print('n,r:',[n,r])
@@ -271,6 +290,7 @@ def accuracyComparisonRegression(event, N, domains, critical_values,nTest = 2000
 
 
 def accuracyComparisonNaive(event, N, domains, critical_values, repeat  = 20):
+	global trunc_a, trunc_b, numIntervals, loc, scale
 	mseMatrix = np.zeros( shape = (repeat, len(N)) )
 	estimationMatrix = np.zeros( shape = (repeat, len(N)) )
 
@@ -286,11 +306,18 @@ def accuracyComparisonNaive(event, N, domains, critical_values, repeat  = 20):
 
 			Labels = categorize_values(y_train, critical_values)
 			Within_events = check_points_in_nd_domain(np.array(X_train), np.array(event)[:,0], np.array(event)[:,1])
-
 			event_probability = 0
-			equivalenceSpace_probability = 1/(len(critical_values)+1)
+
+			a, b = (trunc_a - loc) / scale, (trunc_b - loc) / scale
 			for equivalenceSpace in np.unique(Labels):
+
 				disintegrationConditional =  np.sum(np.logical_and(Labels == equivalenceSpace, Within_events))/np.sum(Labels == equivalenceSpace)
+				if equivalenceSpace == 0:
+					equivalenceSpace_probability = truncnorm.cdf( critical_values[0], a, b, loc=loc, scale=scale)
+				elif equivalenceSpace == len(critical_values):
+					equivalenceSpace_probability = 1 - truncnorm.cdf( critical_values[len(critical_values) - 1], a, b, loc=loc, scale=scale)
+				else: 
+					equivalenceSpace_probability = truncnorm.cdf( critical_values[equivalenceSpace], a, b, loc=loc, scale=scale) - truncnorm.cdf( critical_values[equivalenceSpace - 1], a, b, loc=loc, scale=scale)
 				event_probability += equivalenceSpace_probability * disintegrationConditional
 			estimationMatrix[r, i] = event_probability
 			print('n,r:',[n,r])
@@ -301,13 +328,16 @@ def accuracyComparisonNaive(event, N, domains, critical_values, repeat  = 20):
 
 
 def main():
+	global trunc_a, trunc_b, numIntervals
 	sample_method = sys.argv[1]
 	event = [[1.2,1.4],[2.8,3.1],[0.7,1.8]]
 	domains = [[0.7,1.5], [2.75,3.25], [0,2]]
 	# Generate num_intervals + 2 points (to include and then remove start and end)
-	numIntervals = 10
-	critical_values = np.linspace(2.3, 4.1, numIntervals + 2)[1:-1]
+	critical_values = np.linspace(trunc_a, trunc_b, numIntervals + 2)[1:-1]
+	interval = (trunc_b - trunc_a)/(numIntervals+1)
+	a, b = (trunc_a - loc) / scale, (trunc_b - loc) / scale
 	N = [30,40,50,60,70,80,90, 100,120,140,160,180, 200,250,300, 400,600,800,1000]
+	#N = [1000,5000,10000,20000]
 	accuracyComparison(event, N, domains, critical_values,repeat  = 20,nTest = 2000, sample_method = sample_method)
 	#accuracyComparisonNaive(event, N, domains, critical_values, repeat = 20)
 
