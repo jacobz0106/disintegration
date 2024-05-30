@@ -13,7 +13,7 @@ import sys
 
 trunc_a = 2.3
 trunc_b = 4.1 
-numIntervals = 20
+numIntervals = 10
 loc = 3.3
 scale = 0.5
 
