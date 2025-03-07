@@ -201,8 +201,8 @@ def accuracyComparison(event, N, domains, critical_values,kde_cdf,nTest = 2000, 
 				event_probability += equivalenceSpace_probability * disintegrationConditional
 			estimationMatrix[r, i] = event_probability
 			print('n,r:',[n,r])
-	filenameTrain = f'Results/BrusselatorSimulation/Train_accuracy_{nTest}_Brusselator2D_interval_{len(critical_values)}_{sample_method}.csv'
-	filenamePredict = f'Results/BrusselatorSimulation/Estimation_{nTest}_Brusselator2D_interval_{len(critical_values)}_{sample_method}.csv'
+	filenameTrain = f'../Results/BrusselatorSimulation/Train_accuracy_{nTest}_Brusselator2D_interval_{len(critical_values)}_{sample_method}.csv'
+	filenamePredict = f'../Results/BrusselatorSimulation/Estimation_{nTest}_Brusselator2D_interval_{len(critical_values)}_{sample_method}.csv'
 	header_string = ','.join(str(i) for i in N)
 	np.savetxt(filenameTrain, accuracyMatrix, delimiter=",", header = header_string)
 	np.savetxt(filenamePredict, estimationMatrix, delimiter=",", header = header_string)
@@ -236,7 +236,7 @@ def accuracyComparisonNaive(event, N, domains, critical_values,kde_cdf, repeat  
 				event_probability += equivalenceSpace_probability * disintegrationConditional
 			estimationMatrix[r, i] = event_probability
 			print('n,r:',[n,r])
-	filenamePredict = f'Results/BrusselatorSimulation/Estimation_Brusselator2D_interval_{len(critical_values)}_Naive.csv'
+	filenamePredict = f'../Results/BrusselatorSimulation/Estimation_Brusselator2D_interval_{len(critical_values)}_Naive.csv'
 	header_string = ','.join(str(i) for i in N)
 	np.savetxt(filenamePredict, estimationMatrix, delimiter=",", header = header_string)
 
@@ -321,10 +321,10 @@ def main():
 		testSIP = SIP_Data(integral_3D, DQ_Dlambda_3D,3.45,len(domains) , *domains)
 		#uniform prior on lambda space
 		testSIP.generate_Uniform(10000)
-		np.save("empiricalOutput.npy", np.array(testSIP.df['f']).reshape(-1,1))
+		np.save("../empiricalOutput.npy", np.array(testSIP.df['f']).reshape(-1,1))
 
 
-	empiricalOutput = np.load("empiricalOutput.npy")
+	empiricalOutput = np.load("../empiricalOutput.npy")
 
 	# use kde to remove the bias, use 10,000, use triangular or guadratic kernel, intervals depends on the variance of the kde
 	# 1. use flow to estimate Pd with much fewer samples, 
