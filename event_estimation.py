@@ -314,7 +314,9 @@ def main():
 	domains = [[0.7,1.5],[2.75,3.25],[0,2]]
 
 
-	sample_method, ML_method, numIntervals, initial = sys.argv[1:4]
+	sample_method, ML_method, numIntervals, initial = sys.argv[1:5]
+	numIntervals = int(numIntervals)
+	initial = int(initial)
 
 	if initial == 0:
 		# Convert data to DataFrame
