@@ -338,9 +338,9 @@ def main():
 	# Generate num_intervals + 2 points (to include and then remove start and end)
 	critical_values = np.linspace(trunc_a, trunc_b, numIntervals + 2)[1:-1]
 	#N = [30,40,50,60,70,80,90, 100,120,140,160,180, 200,250,300, 400,600,800,1000]
-	N = [100,120,140,160,180, 200,250,300,400,600,800,1000, 1400,1600,2000]
+	N = [100]#,120,140,160,180, 200,250,300,400,600,800,1000, 1400,1600,2000]
 	if ML_method == 'Naive':
-		accuracyComparisonNaive(event, N, domains, critical_values,kde_cdf, repeat = 20)
+		accuracyComparisonNaive(event, N, domains, critical_values,kde_cdf, repeat = 2)
 	else:
 		accuracyComparison(event, N, domains, critical_values,kde_cdf,repeat  = 20,nTest = 5000, sample_method = sample_method)
 
