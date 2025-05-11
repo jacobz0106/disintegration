@@ -10,12 +10,12 @@ from sklearn.neighbors import KernelDensity
 from scipy.integrate import cumtrapz
 from scipy.interpolate import interp1d
 import sys
-
-
+import math
+import pandas as pd
+from CBP import *
 
 trunc_a = 2
 trunc_b = 4.5 
-numIntervals = 20
 loc = 3.3
 scale = 1
 
@@ -154,26 +154,93 @@ def check_points_in_nd_domain(points, lower_bounds, upper_bounds):
 	return is_within_bounds
 
 
+def kde_estimation(empiricalOutput):
+	kde = KernelDensity(kernel='linear', bandwidth=0.2).fit(empiricalOutput)
+	# Evaluate KDE on a grid
+	x_grid = np.linspace(0, 6, 1000)
 
-def accuracyComparison(event, N, domains, critical_values,kde_cdf,nTest = 2000, repeat  = 20, sample_method = 'POF'):
-	global trunc_a, trunc_b, numIntervals, loc, scale
+	# Compute PDF and CDF
+	log_pdf = kde.score_samples(x_grid[:, None])
+	pdf = np.exp(log_pdf)
+	cdf = cumtrapz(pdf, x_grid, initial=0)  # CDF by numerical integration
+
+	# Create CDF interpolation function
+	cdf_function = interp1d(x_grid, cdf, kind='linear', fill_value="extrapolate")
+
+	return cdf_function
+
+
+def equivalenceSpaceProbability(kde_cdf, critical_values, i):
+	if i > len(critical_values):
+		raise ValueError('index out of bound.')
+	if i == 0:
+		return kde_cdf(critical_values[0])
+	elif i == len(critical_values):
+		return 1 - kde_cdf(critical_values[i-1])
+	else:
+		return kde_cdf(critical_values[i]) - kde_cdf(critical_values[i-1])
+
+
+class eventEstimation(object):
+	def __init__(self, qoiFunction,gradientFunction, domains, output_range, numIntervals):
+		self.qoiFunction = qoiFunction
+		self.domains = domains
+		self.output_range = output_range
+		self.numIntervals =numIntervals
+		self.critical_values = np.linspace(output_range[0], output_range[1], numIntervals + 2)[1:-1]
+		self.kde_cdf = None
+
+	def estimation(self,event, n = 1000, initialization = True):
+		if initialization == True:
+			points = np.array([np.random.uniform(low, high, n) for low, high in self.domains]).T
+			df = pd.DataFrame(points, columns = [f'X{i+1}' for i in range(len(self.domains) )])
+			Z = df.apply(self.qoi_function, axis = 1)
+
+			kde_cdf = kde_estimation(np.array(Z).reshape(-1, 1))
+
+			Labels = categorize_values(Z, self.critical_values)
+			self.points = points
+			self.Labels = Labels
+			self.kde_cdf = kde_cdf
+		elif self.kde_cdf is None:
+			raise ValueError('generate data by initialization first...')
+
+		Within_events = check_points_in_nd_domain(np.array(self.points), np.array(event)[:,0], np.array(event)[:,1])
+		event_probability = 0
+
+		for equivalenceSpace in np.unique(self.Labels):
+			disintegrationConditional =  np.sum(np.logical_and(self.Labels == equivalenceSpace, Within_events))/np.sum(self.Labels == equivalenceSpace)
+			equivalenceSpace_probability = equivalenceSpaceProbability(self.kde_cdf, self.critical_values, equivalenceSpace)
+			event_probability += equivalenceSpace_probability * disintegrationConditional
+		print(f"With {n} points, {self.numIntervals} discretizations, estimated prob is {event_probability}")
+		return event_probability
+
+
+
+
+
+
+
+
+
+
+
+def accuracyComparison(quantity_of_interest, gradientFunction, model, param_grid,event, N, domains, critical_values,kde_cdf, out_suffix,nTest = 2000, repeat  = 20, sample_method = 'POF', grid_search =True):
 	accuracyMatrix = np.zeros( shape = (repeat, len(N)) )
 	estimationMatrix = np.zeros( shape = (repeat, len(N)) )
-	testSIP = SIP_Data_Multi(integral_3D, DQ_Dlambda_3D, critical_values, len(domains) , *domains)
+	testSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains) , *domains)
 	testSIP.generate_Uniform(nTest)
 	X_test = testSIP.df.iloc[:, :-2].values
 	y_test = testSIP.df['Label'].values
 
 	for i, n in enumerate(N):
 		for r in range(repeat):
-			mlp_classifier = MLPClassifier()
-			dataSIP = SIP_Data_Multi(integral_3D, DQ_Dlambda_3D, critical_values, len(domains) , *domains)
+			dataSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains) , *domains)
 			if sample_method == 'POF':
-				dataSIP.generate_POF(n = n, CONST_a = 1 ,iniPoints = 5, sampleCriteria = 'k-dDarts')
+				dataSIP.generate_POF(n = n, CONST_a = 2 ,iniPoints = 5, sampleCriteria = 'k-dDarts')
 			else:
 				dataSIP.generate_Uniform(n)
 
-			# MLP predict event probability 
 			Label = dataSIP.df['Label'].values
 			dfTrain = dataSIP.df.iloc[:, :-2].values
 			dQ = dataSIP.Gradient
@@ -181,8 +248,20 @@ def accuracyComparison(event, N, domains, critical_values,kde_cdf,nTest = 2000, 
 			X_train = dfTrain
 			y_train = Label
 
+			if isinstance(model, OneVsRestWrapper):
+				fit_para = {'dQ':dQ}
+				if grid_search == True:
+					grid_search = GridSearchCV(model, param_grid, cv=5, scoring='accuracy', verbose = 1)
 
-			best_model = perform_grid_search_cv(mlp_classifier, param_grid_MLP, X_train,y_train)
+					# Fit the grid search to the data
+					grid_search.fit(X_train, y_train, **fit_para)
+					# Get the best model with tuned hyperparameters
+					best_model = grid_search.best_estimator_
+				else:
+					best_model = model
+					best_model.fit(X_train, y_train, dQ)
+			elif isinstance(model,MLPClassifier):
+				best_model = perform_grid_search_cv(model, param_grid, X_train,y_train)
 			trainAccuracy = np.sum(best_model.predict(X_train) == y_train)/len(y_train)
 			print(trainAccuracy)
 			predictionAccuracy = np.sum(best_model.predict(X_test) == y_test)/len(y_test)
@@ -201,8 +280,8 @@ def accuracyComparison(event, N, domains, critical_values,kde_cdf,nTest = 2000, 
 				event_probability += equivalenceSpace_probability * disintegrationConditional
 			estimationMatrix[r, i] = event_probability
 			print('n,r:',[n,r])
-	filenameTrain = f'../Results/BrusselatorSimulation/Train_accuracy_{nTest}_Brusselator2D_interval_{len(critical_values)}_{sample_method}.csv'
-	filenamePredict = f'../Results/BrusselatorSimulation/Estimation_{nTest}_Brusselator2D_interval_{len(critical_values)}_{sample_method}.csv'
+	filenameTrain = f'../Results/BrusselatorSimulation/Pred_accuracy_{nTest}_{out_suffix}_{len(critical_values)}_intervals_{len(critical_values)}_{sample_method}_.csv'
+	filenamePredict = f'../Results/BrusselatorSimulation/Estimation_{nTest}_{out_suffix}_{len(critical_values)}_intervals_{len(critical_values)}_{sample_method}.csv'
 	header_string = ','.join(str(i) for i in N)
 	np.savetxt(filenameTrain, accuracyMatrix, delimiter=",", header = header_string)
 	np.savetxt(filenamePredict, estimationMatrix, delimiter=",", header = header_string)
@@ -240,7 +319,7 @@ def accuracyComparisonNaive(event, N, domains, critical_values,kde_cdf, repeat  
 	header_string = ','.join(str(i) for i in N)
 	np.savetxt(filenamePredict, estimationMatrix, delimiter=",", header = header_string)
 
-def event_estimation(event, n, domains, critical_values,kde_cdf,repeat = 10):
+def event_estimation(event, n, domains, critical_values, kde_cdf,repeat = 10):
 	global trunc_a, trunc_b, numIntervals, loc, scale
 	estimationMatrix = np.zeros(repeat)
 
@@ -267,31 +346,6 @@ def event_estimation(event, n, domains, critical_values,kde_cdf,repeat = 10):
 ########### - Events - ###################
 
 
-def kde_estimation(empiricalOutput):
-	kde = KernelDensity(kernel='linear', bandwidth=0.2).fit(empiricalOutput)
-	# Evaluate KDE on a grid
-	x_grid = np.linspace(1, 6, 1000)
-
-	# Compute PDF and CDF
-	log_pdf = kde.score_samples(x_grid[:, None])
-	pdf = np.exp(log_pdf)
-	cdf = cumtrapz(pdf, x_grid, initial=0)  # CDF by numerical integration
-
-	# Create CDF interpolation function
-	cdf_function = interp1d(x_grid, cdf, kind='linear', fill_value="extrapolate")
-
-	return cdf_function
-
-
-def equivalenceSpaceProbability(kde_cdf, critical_values, i):
-	if i > len(critical_values):
-		raise ValueError('index out of bound.')
-	if i == 0:
-		return kde_cdf(critical_values[0])
-	elif i == len(critical_values):
-		return 1 - kde_cdf(critical_values[i-1])
-	else:
-		return 1 - kde_cdf(critical_values[i]) - kde_cdf(critical_values[i-1])
 
 #######
 
@@ -302,47 +356,91 @@ def equivalenceSpaceProbability(kde_cdf, critical_values, i):
 ###
 
 
+def generate_POF(N,domains,critical_values,repeat = 20):
+	for i in range(repeat):
+		for j in N:
+			print([i,j] )
+			dataSIP = SIP_Data_Multi(integral_3D, DQ_Dlambda_3D, critical_values, len(domains) , *domains)
+			dataSIP.generate_POF(n = n, CONST_a = 1 ,iniPoints = 5, sampleCriteria = 'k-dDarts')
+
+
+
+
 
 
 
 
 ##### ------------------------ ################
 def main():
-	global trunc_a, trunc_b
-	sample_method = sys.argv[1]
-	event = [[0.8,1.3],[2.9,3.2],[0.9,1.8]]
-	domains = [[0.7,1.5],[2.75,3.25],[0,2]]
-
-
-	sample_method, ML_method, numIntervals, initial = sys.argv[1:5]
-	numIntervals = int(numIntervals)
-	initial = int(initial)
-
-	if initial == 0:
-		# Convert data to DataFrame
-		testSIP = SIP_Data(integral_3D, DQ_Dlambda_3D,3.45,len(domains) , *domains)
-		#uniform prior on lambda space
-		testSIP.generate_Uniform(10000)
-		np.save("../empiricalOutput.npy", np.array(testSIP.df['f']).reshape(-1,1))
-
-
-	empiricalOutput = np.load("../empiricalOutput.npy")
-
-	# use kde to remove the bias, use 10,000, use triangular or guadratic kernel, intervals depends on the variance of the kde
-	# 1. use flow to estimate Pd with much fewer samples, 
-
-	# 2. with Pd, estimate the event
-
-
-	kde_cdf = kde_estimation(empiricalOutput)
-	# Generate num_intervals + 2 points (to include and then remove start and end)
-	critical_values = np.linspace(trunc_a, trunc_b, numIntervals + 2)[1:-1]
-	#N = [30,40,50,60,70,80,90, 100,120,140,160,180, 200,250,300, 400,600,800,1000]
+	numIntervals = 10
+	n = 5000
 	N = [100,120,140,160,180, 200,250,300,400,600,800,1000, 1400,1600,2000]
-	if ML_method == 'Naive':
-		accuracyComparisonNaive(event, N, domains, critical_values,kde_cdf, repeat = 20)
-	else:
-		accuracyComparison(event, N, domains, critical_values,kde_cdf,repeat  = 20,nTest = 5000, sample_method = sample_method)
+	nTest = 5000
+	repeat = 20
+	# function1
+	domains = [[-1,1], [-1,1] ]
+	event = [[0,0.8],[-0.7,0.5]]
+	dataSIP = SIP_Data(function2, Gradient_f2, 1, len(domains) , *domains)
+	dataSIP.generate_Uniform(n)
+	dfTrain = dataSIP.df.iloc[:, :-2].values
+	critical_values = np.linspace(0, 2, numIntervals + 2)[1:-1]
+	kde_cdf = kde_estimation(np.array(dataSIP.df['f']).reshape(-1,1))
+	base = GMSVM_reduced(clusterSize = 6,ensembleNum=1,C = 0.1,  K = 1, reduced = False, similarity = 0.5)
+	model = OneVsRestWrapper(base)
+	param_grid_GMSVM_reduced = {  
+	'clusterSize': [6, 8],    
+	'ensembleNum': [1], 
+	'C':[0.1,1],     
+	'K':[0.1,1,10]
+	  }
+	accuracyComparison(function2, Gradient_f2, model, param_grid_GMSVM_reduced,event, N, domains, critical_values,kde_cdf, out_suffix="function2_PPSVMG",nTest = nTest, repeat  = repeat, sample_method = 'POF', grid_search = False)
+	
+
+
+
+
+	# global trunc_a, trunc_b
+	# sample_method = sys.argv[1]
+	# event = [[0.8,1.3],[2.9,3.2],[0.9,1.8]]
+	# domains = [[0.7,1.5],[2.75,3.25],[0,2]]
+
+
+	# sample_method, ML_method, numIntervals, initial = sys.argv[1:5]
+	# numIntervals = int(numIntervals)
+	# initial = int(initial)
+
+	# if initial == 0:
+	# 	# Convert data to DataFrame
+	# 	testSIP = SIP_Data(integral_3D, DQ_Dlambda_3D,3.45,len(domains) , *domains)
+	# 	#uniform prior on lambda space
+	# 	testSIP.generate_Uniform(10000)
+	# 	np.save("../empiricalOutput.npy", np.array(testSIP.df['f']).reshape(-1,1))
+
+
+	# empiricalOutput = np.load("../empiricalOutput.npy")
+
+	# # use kde to remove the bias, use 10,000, use triangular or guadratic kernel, intervals depends on the variance of the kde
+	# # 1. use flow to estimate Pd with much fewer samples, 
+
+	# # 2. with Pd, estimate the event
+
+
+	# kde_cdf = kde_estimation(empiricalOutput)
+	# # Generate num_intervals + 2 points (to include and then remove start and end)
+	# critical_values = np.linspace(trunc_a, trunc_b, numIntervals + 2)[1:-1]
+	# #N = [30,40,50,60,70,80,90, 100,120,140,160,180, 200,250,300, 400,600,800,1000]
+	# N = [100,120,140,160,180, 200,250,300,400,600,800,1000, 1400,1600,2000]
+	# if ML_method == 'Naive':
+	# 	accuracyComparisonNaive(event, N, domains, critical_values,kde_cdf, repeat = 20)
+	# else:
+	# 	accuracyComparison(event, N, domains, critical_values,kde_cdf,repeat  = 20,nTest = 5000, sample_method = sample_method)
+
+	#brusselator2Dplot(500,sep = 10)
+
+	# plot of how many points in each contour, 
+	# crosssection of lotkavoltarra
+
+
 
 
 

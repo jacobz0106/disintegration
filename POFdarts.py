@@ -5,7 +5,7 @@ from scipy.optimize import minimize_scalar
 import random
 import statistics
 
-# ---------------------------------- MagKmeans Algorithm ---------------------------------- 
+# ---------------------------------- POF-Darts ---------------------------------- 
 # Code based on the pseudocode from the paper:
 # 	Title: "POF-Darts: Geometric Adaptive Sampling for Probability of Failure"
 # 	Authors: Ebeida, Mohamed and Mitchell, Scott and Swiler, Laura and Romero, Vicente and Rushdi, Ahmad
@@ -20,7 +20,7 @@ class POFdarts(object):
 		gradient takes 1 argument: tuple
 		'''
 		self.function_y = function_y
-		self.lower_bound = 0.01
+		self.lower_bound = lower_bound
 		self.gradient = gradient
 		self.CONST_a = CONST_a
 		# critical_values is a list 
@@ -208,7 +208,7 @@ class POFdarts(object):
 					return(linearDart)
 			# print('miss')
 			totalmiss += 1
-		return 0
+		return None
 
 
 

@@ -578,13 +578,16 @@ class SIP_Data_Multi(object):
 		self.Gradient = []
 
 
-	def generate_Uniform(self,n, Initialization = True):
+	def generate_Uniform(self,n, Initialization = True, Gradient = True):
 		points = np.array([np.random.uniform(low, high, n) for low, high in self.domain]).T
 
 		self.df = pd.DataFrame(points, columns = [f'X{i+1}' for i in range(self.dim)])
 
 		Z = self.df.apply(self.function_y, axis = 1)
-		self.Gradient = self.df.apply(self.function_gradient, axis = 1)
+		if Gradient:
+			self.Gradient = self.df.apply(self.function_gradient, axis = 1)
+		else:
+			self.Gradient = False
 		self.df['Label'] = categorize_values(Z, self.critical_values)
 		self.df['f'] = Z
 		
