@@ -14,33 +14,31 @@ import math
 import pandas as pd
 from CBP import *
 
-trunc_a = 2
-trunc_b = 4.5 
-loc = 3.3
-scale = 1
+from multiprocessing import cpu_count
+
 
 
 
 # Function to create model, required for KerasRegressor
 def sequential_model(layers=1, neurons=10,activation = 'relu'):
-    model = Sequential()
-    model.add(Dense(neurons, input_dim=3, activation=activation))  # Assuming input features are 10
-    for i in range(layers-1):
-        model.add(Dense(neurons, activation='relu'))
-    model.add(Dense(1, activation='linear'))  # Output layer for regression
-    model.compile(loss='mean_squared_error', optimizer='adam')
-    return model
+	model = Sequential()
+	model.add(Dense(neurons, input_dim=3, activation=activation))  # Assuming input features are 10
+	for i in range(layers-1):
+		model.add(Dense(neurons, activation='relu'))
+	model.add(Dense(1, activation='linear'))  # Output layer for regression
+	model.compile(loss='mean_squared_error', optimizer='adam')
+	return model
 
 # Wrap the model with KerasRegressor
 
 # Define the grid search parameters
 param_grid_nn = {
-    'hidden_layer_sizes': [(50, 50), (100, 100), (50, 100, 50)],
-    'activation': ['tanh', 'relu'],
-    'solver': ['sgd', 'adam'],
-    'learning_rate_init': [0.001, 0.01, 0.1],
-    'alpha': [0.0001, 0.001],
-    'max_iter':[500,1000,1500], 
+	'hidden_layer_sizes': [(50, 50), (100, 100), (50, 100, 50)],
+	'activation': ['tanh', 'relu'],
+	'solver': ['sgd', 'adam'],
+	'learning_rate_init': [0.001, 0.01, 0.1],
+	'alpha': [0.0001, 0.001],
+	'max_iter':[500,1000,1500], 
 }
 
 
@@ -289,14 +287,14 @@ def accuracyComparison(quantity_of_interest, gradientFunction, model, param_grid
 
 
 
-def accuracyComparisonNaive(event, N, domains, critical_values,kde_cdf, repeat  = 20):
+def accuracyComparisonNaive(out_suffix,quantity_of_interest, gradientFunction, event, N, domains, critical_values,kde_cdf, repeat  = 20):
 	global trunc_a, trunc_b, numIntervals, loc, scale
 	mseMatrix = np.zeros( shape = (repeat, len(N)) )
 	estimationMatrix = np.zeros( shape = (repeat, len(N)) )
 
 	for i, n in enumerate(N):
 		for r in range(repeat):
-			dataSIP = SIP_Data_Multi(integral_3D, DQ_Dlambda_3D, critical_values, len(domains) , *domains)
+			dataSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains) , *domains)
 			dataSIP.generate_Uniform(n)
 			dfTrain = dataSIP.df.iloc[:, :-2].values
 
@@ -315,7 +313,7 @@ def accuracyComparisonNaive(event, N, domains, critical_values,kde_cdf, repeat  
 				event_probability += equivalenceSpace_probability * disintegrationConditional
 			estimationMatrix[r, i] = event_probability
 			print('n,r:',[n,r])
-	filenamePredict = f'../Results/BrusselatorSimulation/Estimation_Brusselator2D_interval_{len(critical_values)}_Naive.csv'
+	filenamePredict = f'../Results/BrusselatorSimulation/Estimation_{out_suffix}_interval_{len(critical_values)+1}_Naive.csv'
 	header_string = ','.join(str(i) for i in N)
 	np.savetxt(filenamePredict, estimationMatrix, delimiter=",", header = header_string)
 
@@ -365,6 +363,92 @@ def generate_POF(N,domains,critical_values,repeat = 20):
 
 
 
+## wrapper for parallel -------------------------------------------------------------------------------------
+
+from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor
+import numpy as np
+
+def single_run(n, r, quantity_of_interest, gradientFunction, model, param_grid, event, domains,
+			   critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
+			   OneVsRestWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
+			   equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV):
+
+	dataSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
+	if sample_method == 'POF':
+		dataSIP.generate_POF(n=n, CONST_a=2, iniPoints=5, sampleCriteria='k-dDarts')
+	else:
+		dataSIP.generate_Uniform(n)
+
+	Label = dataSIP.df['Label'].values
+	dfTrain = dataSIP.df.iloc[:, :-2].values
+	dQ = dataSIP.Gradient
+
+	X_train = dfTrain
+	y_train = Label
+
+	if isinstance(model, OneVsRestWrapper):
+		fit_para = {'dQ': dQ}
+		if grid_search:
+			grid_search_obj = GridSearchCV(model, param_grid, cv=5, scoring='accuracy', verbose=0)
+			grid_search_obj.fit(X_train, y_train, **fit_para)
+			best_model = grid_search_obj.best_estimator_
+		else:
+			best_model = model
+			best_model.fit(X_train, y_train, dQ)
+	elif isinstance(model, MLPClassifier):
+		best_model = perform_grid_search_cv(model, param_grid, X_train, y_train)
+
+	predictionAccuracy = np.sum(best_model.predict(X_test) == y_test) / len(y_test)
+
+	Labels = best_model.predict(X_test)
+	Within_events = check_points_in_nd_domain(np.array(X_test), np.array(event)[:, 0], np.array(event)[:, 1])
+
+	event_probability = 0
+	for equivalenceSpace in np.unique(Labels):
+		disintegrationConditional = np.sum(
+			np.logical_and(Labels == equivalenceSpace, Within_events)) / np.sum(Labels == equivalenceSpace)
+		equivalenceSpace_probability = equivalenceSpaceProbability(kde_cdf, critical_values, equivalenceSpace)
+		event_probability += equivalenceSpace_probability * disintegrationConditional
+
+	return r, predictionAccuracy, event_probability
+
+def accuracyComparison_parallel_repeat(quantity_of_interest, gradientFunction, model, param_grid, event,
+									   N, domains, critical_values, kde_cdf, out_suffix,
+									   nTest=2000, repeat=20, sample_method='POF', grid_search=True, max_workers=4):
+
+	testSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
+	testSIP.generate_Uniform(nTest)
+	X_test = testSIP.df.iloc[:, :-2].values
+	y_test = testSIP.df['Label'].values
+
+	accuracyMatrix = np.zeros((repeat, len(N)))
+	estimationMatrix = np.zeros((repeat, len(N)))
+
+	with ProcessPoolExecutor(max_workers=max_workers) as executor:
+		futures = []
+		for i, n in enumerate(N):
+			for r in range(repeat):
+				f = executor.submit(
+					single_run, n, r, quantity_of_interest, gradientFunction, model, param_grid, event,
+					domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
+					OneVsRestWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
+					equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV
+				)
+				futures.append((i, f))
+
+		for i, f in tqdm(futures, desc="Processing", total=len(futures)):
+			r, acc, est = f.result()
+			accuracyMatrix[r, i] = acc
+			estimationMatrix[r, i] = est
+
+	filenameTrain = f'Results/BrusselatorSimulation/Pred_accuracy_{nTest}_{out_suffix}_{len(critical_values)+1}_intervals_{sample_method}_.csv'
+	filenamePredict = f'Results/BrusselatorSimulation/Estimation_{nTest}_{out_suffix}_{len(critical_values)+1}_intervals_{sample_method}.csv'
+	header_string = ','.join(str(i) for i in N)
+	np.savetxt(filenameTrain, accuracyMatrix, delimiter=",", header=header_string)
+	np.savetxt(filenamePredict, estimationMatrix, delimiter=",", header=header_string)
+	return accuracyMatrix, estimationMatrix
+
 
 
 
@@ -377,7 +461,9 @@ def main():
 	N = [100,120,140,160,180, 200,250,300,400,600,800,1000, 1400,1600,2000]
 	nTest = 5000
 	repeat = 20
-	# function1
+
+
+	# function2 ---------------
 	domains = [[-1,1], [-1,1] ]
 	event = [[0,0.8],[-0.7,0.5]]
 	dataSIP = SIP_Data(function2, Gradient_f2, 1, len(domains) , *domains)
@@ -393,11 +479,25 @@ def main():
 	'C':[0.1,1],     
 	'K':[0.1,1,10]
 	  }
-	accuracyComparison(function2, Gradient_f2, model, param_grid_GMSVM_reduced,event, N, domains, critical_values,kde_cdf, out_suffix="function2_PPSVMG",nTest = nTest, repeat  = repeat, sample_method = 'POF', grid_search = False)
 	
-
-
-
+	accuracyComparison_parallel_repeat(
+    quantity_of_interest=function2,
+    gradientFunction=Gradient_f2,
+    model=model,
+    param_grid=param_grid_GMSVM_reduced,
+    event=event,
+    N=N,
+    domains=domains,
+    critical_values=critical_values,
+    kde_cdf=kde_cdf,
+    out_suffix='function2_PPSVMG',
+    nTest=nTest,
+    repeat=repeat,
+    sample_method='POF',
+    grid_search=False,
+    max_workers=cpu_count() // 2  # set number of parallel processes here
+	)
+	#accuracyComparisonNaive('function2_PPSVMG',function2, Gradient_f2, event, N, domains, critical_values,kde_cdf, repeat  = 20)
 
 	# global trunc_a, trunc_b
 	# sample_method = sys.argv[1]
