@@ -480,26 +480,26 @@ def main():
 	'K':[0.1,1,10]
 	  }
 	
-	# accuracyComparison_parallel_repeat(
-    # quantity_of_interest=function2,
-    # gradientFunction=Gradient_f2,
-    # model=model,
-    # param_grid=param_grid_GMSVM_reduced,
-    # event=event,
-    # N=N,
-    # domains=domains,
-    # critical_values=critical_values,
-    # kde_cdf=kde_cdf,
-    # out_suffix='function2_PPSVMG',
-    # nTest=nTest,
-    # repeat=repeat,
-    # sample_method='POF',
-    # grid_search=False,
-    # max_workers=cpu_count() // 2  # set number of parallel processes here
-	# )
+	accuracyComparison_parallel_repeat(
+    quantity_of_interest=function2,
+    gradientFunction=Gradient_f2,
+    model=model,
+    param_grid=param_grid_GMSVM_reduced,
+    event=event,
+    N=N,
+    domains=domains,
+    critical_values=critical_values,
+    kde_cdf=kde_cdf,
+    out_suffix='function2_PPSVMG',
+    nTest=nTest,
+    repeat=repeat,
+    sample_method='POF',
+    grid_search=False,
+    max_workers=cpu_count() // 2  # set number of parallel processes here
+	)
 	#accuracyComparisonNaive('function2_PPSVMG',function2, Gradient_f2, event, N, domains, critical_values,kde_cdf, repeat  = 20)
 
-	print(1)
+
 
 
 
