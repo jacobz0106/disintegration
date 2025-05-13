@@ -15,7 +15,9 @@ import pandas as pd
 from CBP import *
 
 from multiprocessing import cpu_count
-
+from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor
+import numpy as np
 
 
 
@@ -365,9 +367,7 @@ def generate_POF(N,domains,critical_values,repeat = 20):
 
 ## wrapper for parallel -------------------------------------------------------------------------------------
 
-from tqdm import tqdm
-from concurrent.futures import ProcessPoolExecutor
-import numpy as np
+
 
 def single_run(n, r, quantity_of_interest, gradientFunction, model, param_grid, event, domains,
 			   critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
@@ -480,65 +480,26 @@ def main():
 	'K':[0.1,1,10]
 	  }
 	
-	accuracyComparison_parallel_repeat(
-    quantity_of_interest=function2,
-    gradientFunction=Gradient_f2,
-    model=model,
-    param_grid=param_grid_GMSVM_reduced,
-    event=event,
-    N=N,
-    domains=domains,
-    critical_values=critical_values,
-    kde_cdf=kde_cdf,
-    out_suffix='function2_PPSVMG',
-    nTest=nTest,
-    repeat=repeat,
-    sample_method='POF',
-    grid_search=False,
-    max_workers=cpu_count() // 2  # set number of parallel processes here
-	)
+	# accuracyComparison_parallel_repeat(
+    # quantity_of_interest=function2,
+    # gradientFunction=Gradient_f2,
+    # model=model,
+    # param_grid=param_grid_GMSVM_reduced,
+    # event=event,
+    # N=N,
+    # domains=domains,
+    # critical_values=critical_values,
+    # kde_cdf=kde_cdf,
+    # out_suffix='function2_PPSVMG',
+    # nTest=nTest,
+    # repeat=repeat,
+    # sample_method='POF',
+    # grid_search=False,
+    # max_workers=cpu_count() // 2  # set number of parallel processes here
+	# )
 	#accuracyComparisonNaive('function2_PPSVMG',function2, Gradient_f2, event, N, domains, critical_values,kde_cdf, repeat  = 20)
 
-	# global trunc_a, trunc_b
-	# sample_method = sys.argv[1]
-	# event = [[0.8,1.3],[2.9,3.2],[0.9,1.8]]
-	# domains = [[0.7,1.5],[2.75,3.25],[0,2]]
-
-
-	# sample_method, ML_method, numIntervals, initial = sys.argv[1:5]
-	# numIntervals = int(numIntervals)
-	# initial = int(initial)
-
-	# if initial == 0:
-	# 	# Convert data to DataFrame
-	# 	testSIP = SIP_Data(integral_3D, DQ_Dlambda_3D,3.45,len(domains) , *domains)
-	# 	#uniform prior on lambda space
-	# 	testSIP.generate_Uniform(10000)
-	# 	np.save("../empiricalOutput.npy", np.array(testSIP.df['f']).reshape(-1,1))
-
-
-	# empiricalOutput = np.load("../empiricalOutput.npy")
-
-	# # use kde to remove the bias, use 10,000, use triangular or guadratic kernel, intervals depends on the variance of the kde
-	# # 1. use flow to estimate Pd with much fewer samples, 
-
-	# # 2. with Pd, estimate the event
-
-
-	# kde_cdf = kde_estimation(empiricalOutput)
-	# # Generate num_intervals + 2 points (to include and then remove start and end)
-	# critical_values = np.linspace(trunc_a, trunc_b, numIntervals + 2)[1:-1]
-	# #N = [30,40,50,60,70,80,90, 100,120,140,160,180, 200,250,300, 400,600,800,1000]
-	# N = [100,120,140,160,180, 200,250,300,400,600,800,1000, 1400,1600,2000]
-	# if ML_method == 'Naive':
-	# 	accuracyComparisonNaive(event, N, domains, critical_values,kde_cdf, repeat = 20)
-	# else:
-	# 	accuracyComparison(event, N, domains, critical_values,kde_cdf,repeat  = 20,nTest = 5000, sample_method = sample_method)
-
-	#brusselator2Dplot(500,sep = 10)
-
-	# plot of how many points in each contour, 
-	# crosssection of lotkavoltarra
+	print(1)
 
 
 
