@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import GridSearchCV, cross_val_score, KFold, train_test_split
-
+import time
 from sklearn.neural_network import MLPRegressor
 from scipy.stats import truncnorm
 from sklearn.neighbors import KernelDensity
@@ -26,7 +26,7 @@ import warnings
 from sklearn.exceptions import ConvergenceWarning
 
 with warnings.catch_warnings():
-    warnings.filterwarnings("ignore", category=ConvergenceWarning)
+	warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 
 # Function to create model, required for KerasRegressor
@@ -192,7 +192,7 @@ def accuracyComparisonNaive(out_suffix,quantity_of_interest, gradientFunction, e
 	for i, n in enumerate(N):
 		for r in range(repeat):
 			dataSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains) , *domains)
-			dataSIP.generate_Uniform(n)
+			dataSIP.generate_Uniform(n, Gradient = False)
 			dfTrain = dataSIP.df.iloc[:, :-2].values
 
 			X_train = dfTrain
@@ -219,7 +219,7 @@ def event_estimation(function_y,function_Gradient,event, n, domains, critical_va
 
 	for r in range(repeat):
 		dataSIP = SIP_Data_Multi(function_y,function_Gradient, critical_values, len(domains) , *domains)
-		dataSIP.generate_Uniform(n)
+		dataSIP.generate_Uniform(n, Gradient = False)
 		dfTrain = dataSIP.df.iloc[:, :-2].values
 
 		X_train = dfTrain
@@ -379,36 +379,30 @@ def event_estimation(function_y,function_Gradient,event, n, domains, critical_va
 # 			r, acc, est = f.result()
 
 
-# Global shared lock
-shared_lock = None
-
-def initializer(lock_):
-	"""Set up the shared lock in each worker process."""
-	global shared_lock
-	shared_lock = lock_
-
 def run_single_task(arg):
 	return single_run_sqlite(*arg)
 
 def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, model, param_grid, event,
 					  domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
 					  OneVsRestWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
-					  equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV, db_path):
-	global shared_lock
+					  equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV, db_keys):
 	key = f"{sample_method}_{out_suffix}_{n}_repeat_{r}_intervals_{len(critical_values) + 1}"
 
-	# Read with lock
-	with shared_lock:
-		with SqliteDict(db_path, autocommit=True) as db:
-			if key in db:
-				print(f"⏩ Skipping existing run: {key}")
-				return r, None, None
+	if key in db_keys:
+		print(f"Skipping existing run: {key}")
+		return None  # Skip
+
+	# ... [same logic as before, excluding any SQLite writing]
+
 
 	dataSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
 	if sample_method == 'POF':
 		dataSIP.generate_POF(n=n, CONST_a=2, iniPoints=5, sampleCriteria='k-dDarts')
 	else:
-		dataSIP.generate_Uniform(n)
+		if isinstance(model, MLPClassifier):
+			dataSIP.generate_Uniform(n, Gradient = False)
+		else:
+			dataSIP.generate_Uniform(n)
 
 	Label = dataSIP.df['Label'].values
 	dfTrain = dataSIP.df.iloc[:, :-2].values
@@ -440,11 +434,7 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 		equivalenceSpace_probability = float(equivalenceSpaceProbability(kde_cdf, critical_values, equivalenceSpace))
 		event_probability += equivalenceSpace_probability * disintegrationConditional
 
-	with shared_lock:
-		with SqliteDict(db_path, autocommit=True) as db:
-			db[key] = {'accuracy': predictionAccuracy, 'estimation': event_probability}
-			print(f'processed: {key}')
-	return r, predictionAccuracy, event_probability
+	return key, predictionAccuracy, event_probability
 
 def accuracyComparison_parallel_repeat(
 	quantity_of_interest, gradientFunction, model, param_grid, event,
@@ -452,29 +442,75 @@ def accuracyComparison_parallel_repeat(
 	nTest=2000, repeat=20, sample_method='POF', grid_search=True, max_workers=4,
 	db_path='Results/dic.sqlite'):
 
-	ctx = get_context("spawn")
-	lock = ctx.Lock()
+	# Step 1: Load existing keys before parallel
+	with SqliteDict(db_path, autocommit=True) as db:
+		db_keys = set(db.keys())
 
+	# Step 2: Setup test data
 	testSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
-	testSIP.generate_Uniform(nTest)
+	testSIP.generate_Uniform(nTest, Gradient=False)
 	X_test = testSIP.df.iloc[:, :-2].values
 	y_test = testSIP.df['Label'].values
 
+	# Step 3: Prepare args
 	args = [
 		(out_suffix, n, r, quantity_of_interest, gradientFunction, model, param_grid, event,
 		 domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
 		 OneVsRestWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
-		 equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV, db_path)
+		 equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV, db_keys)
 		for n in N for r in range(repeat)
 	]
 
-	with ctx.Pool(processes=max_workers, initializer=initializer, initargs=(lock,)) as pool:
-		#results = list(tqdm(pool.starmap(single_run_sqlite, args), total=len(args)))
-		results = []
+	# Step 4: Run in parallel
+	ctx = get_context("spawn")
+	results = []
+	results_to_write = {}
+	last_write_time = time.time()
+
+	with ctx.Pool(processes=max_workers) as pool:
 		for result in tqdm(pool.imap_unordered(run_single_task, args), total=len(args)):
-			results.append(result)
-	
+			if result is not None:
+				key, acc, est = result
+				results.append((key, acc, est))
+				results_to_write[key] = {'accuracy': acc, 'estimation': est}
+
+			# Step 5: Periodically flush results to SQLite
+			if time.time() - last_write_time >= 600:  # 10 minutes
+				with SqliteDict(db_path, autocommit=True) as db:
+					db.update(results_to_write)
+				results_to_write = {}
+				last_write_time = time.time()
+
+	# Step 6: Final flush
+	if results_to_write:
+		with SqliteDict(db_path, autocommit=True) as db:
+			db.update(results_to_write)
+
 	return results
+	
+	# ctx = get_context("spawn")
+	# lock = ctx.Lock()
+
+	# testSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
+	# testSIP.generate_Uniform(nTest, Gradient = False)
+	# X_test = testSIP.df.iloc[:, :-2].values
+	# y_test = testSIP.df['Label'].values
+
+	# args = [
+	# 	(out_suffix, n, r, quantity_of_interest, gradientFunction, model, param_grid, event,
+	# 	 domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
+	# 	 OneVsRestWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
+	# 	 equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV, db_path)
+	# 	for n in N for r in range(repeat)
+	# ]
+
+	# with ctx.Pool(processes=max_workers, initializer=initializer, initargs=(lock,)) as pool:
+	# 	#results = list(tqdm(pool.starmap(single_run_sqlite, args), total=len(args)))
+	# 	results = []
+	# 	for result in tqdm(pool.imap_unordered(run_single_task, args), total=len(args)):
+	# 		results.append(result)
+	
+	# return results
 
 
 
@@ -524,15 +560,15 @@ def main():
 		[0.25, 0.75]
 		]
 		event = [
-		[1.1, 1.5],
-		[0.4, 1.1],
-		[1.5, 2],
-		[0.4, 0.75],
-		[0.25, 0.45],
-		[0.45, 0.65],
-		[0.25, 0.55],
+		[0.2, 1.8],
+		[0.4, 1.9],
+		[1.2, 1.7],
+		[0.3, 0.7],
+		[0.3, 0.65],
 		[0.35, 0.65],
-		[0.25, 0.55]
+		[0.25, 0.65],
+		[0.35, 0.65],
+		[0.3, 0.65]
 		]
 		lotka = lotkaVolterra()
 		quantity_of_interest=lotka.quantity_interest
@@ -542,7 +578,7 @@ def main():
 
 
 	dataSIP = SIP_Data(quantity_of_interest, gradientFunction, 1, len(domains) , *domains)
-	dataSIP.generate_Uniform(n)
+	dataSIP.generate_Uniform(n, Gradient = False)
 	dfTrain = dataSIP.df.iloc[:, :-2].values
 	kde_cdf = kde_estimation(np.array(dataSIP.df['f']).reshape(-1,1))
 	out_range = [min(np.array(dataSIP.df['f']).reshape(-1)),max(np.array(dataSIP.df['f']).reshape(-1))]
