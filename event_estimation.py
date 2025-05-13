@@ -40,7 +40,7 @@ param_grid_nn = {
 	'solver': ['sgd', 'adam'],
 	'learning_rate_init': [0.001, 0.01, 0.1],
 	'alpha': [0.0001, 0.001],
-	'max_iter':[500,1000,1500], 
+	'max_iter':[1000,1500,3000], 
 }
 
 
@@ -324,7 +324,7 @@ def main():
   	#example, model, numintervals, sample_method  = ['function2_PPSVMG', 'function2_NN', Brusselator, Elliptic, Function1, Function2], sample method 
 	example, model, numIntervals, sample_method  = sys.argv[1:5]
 	numIntervals = int(numIntervals)
-	n = 200
+	n = 5000
 	N = [100,120,140,160,180, 200,250,300,400,600,800,1000, 1400,1600,2000]
 	nTest = 5000
 	repeat = 20
@@ -401,6 +401,7 @@ def main():
 		  'learning_rate_init': [0.001, 0.01, 0.1],  # Initial learning rate
 		  'max_iter': [3000, 5000, 10000],  # Maximum number of iterations
 		}
+		grid_search = True
 
 
 	#event_estimation(quantity_of_interest,gradientFunction,event, n, domains, critical_values, kde_cdf,repeat = 10)
