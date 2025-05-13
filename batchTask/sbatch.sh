@@ -10,7 +10,7 @@ for model in "${models[@]}"; do
       jobname="function2_${model}_${size}_${method}"
       sbatch --time=13-00:00:00 \
              --cpus-per-task=5 \
-             --mem-per-cpu=1G \
+             --mem-per-cpu=5G \
              -o out/${jobname}.out \
              -e out/${jobname}.err \
              ${jobname}.sh
