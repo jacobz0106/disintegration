@@ -18,7 +18,7 @@ from multiprocessing import cpu_count
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
-
+from sqlitedict import SqliteDict
 
 
 # Function to create model, required for KerasRegressor
@@ -181,114 +181,6 @@ def equivalenceSpaceProbability(kde_cdf, critical_values, i):
 		return kde_cdf(critical_values[i]) - kde_cdf(critical_values[i-1])
 
 
-class eventEstimation(object):
-	def __init__(self, qoiFunction,gradientFunction, domains, output_range, numIntervals):
-		self.qoiFunction = qoiFunction
-		self.domains = domains
-		self.output_range = output_range
-		self.numIntervals =numIntervals
-		self.critical_values = np.linspace(output_range[0], output_range[1], numIntervals + 2)[1:-1]
-		self.kde_cdf = None
-
-	def estimation(self,event, n = 1000, initialization = True):
-		if initialization == True:
-			points = np.array([np.random.uniform(low, high, n) for low, high in self.domains]).T
-			df = pd.DataFrame(points, columns = [f'X{i+1}' for i in range(len(self.domains) )])
-			Z = df.apply(self.qoi_function, axis = 1)
-
-			kde_cdf = kde_estimation(np.array(Z).reshape(-1, 1))
-
-			Labels = categorize_values(Z, self.critical_values)
-			self.points = points
-			self.Labels = Labels
-			self.kde_cdf = kde_cdf
-		elif self.kde_cdf is None:
-			raise ValueError('generate data by initialization first...')
-
-		Within_events = check_points_in_nd_domain(np.array(self.points), np.array(event)[:,0], np.array(event)[:,1])
-		event_probability = 0
-
-		for equivalenceSpace in np.unique(self.Labels):
-			disintegrationConditional =  np.sum(np.logical_and(self.Labels == equivalenceSpace, Within_events))/np.sum(self.Labels == equivalenceSpace)
-			equivalenceSpace_probability = equivalenceSpaceProbability(self.kde_cdf, self.critical_values, equivalenceSpace)
-			event_probability += equivalenceSpace_probability * disintegrationConditional
-		print(f"With {n} points, {self.numIntervals} discretizations, estimated prob is {event_probability}")
-		return event_probability
-
-
-
-
-
-
-
-
-
-
-
-def accuracyComparison(quantity_of_interest, gradientFunction, model, param_grid,event, N, domains, critical_values,kde_cdf, out_suffix,nTest = 2000, repeat  = 20, sample_method = 'POF', grid_search =True):
-	accuracyMatrix = np.zeros( shape = (repeat, len(N)) )
-	estimationMatrix = np.zeros( shape = (repeat, len(N)) )
-	testSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains) , *domains)
-	testSIP.generate_Uniform(nTest)
-	X_test = testSIP.df.iloc[:, :-2].values
-	y_test = testSIP.df['Label'].values
-
-	for i, n in enumerate(N):
-		for r in range(repeat):
-			dataSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains) , *domains)
-			if sample_method == 'POF':
-				dataSIP.generate_POF(n = n, CONST_a = 2 ,iniPoints = 5, sampleCriteria = 'k-dDarts')
-			else:
-				dataSIP.generate_Uniform(n)
-
-			Label = dataSIP.df['Label'].values
-			dfTrain = dataSIP.df.iloc[:, :-2].values
-			dQ = dataSIP.Gradient
-
-			X_train = dfTrain
-			y_train = Label
-
-			if isinstance(model, OneVsRestWrapper):
-				fit_para = {'dQ':dQ}
-				if grid_search == True:
-					grid_search = GridSearchCV(model, param_grid, cv=5, scoring='accuracy', verbose = 1)
-
-					# Fit the grid search to the data
-					grid_search.fit(X_train, y_train, **fit_para)
-					# Get the best model with tuned hyperparameters
-					best_model = grid_search.best_estimator_
-				else:
-					best_model = model
-					best_model.fit(X_train, y_train, dQ)
-			elif isinstance(model,MLPClassifier):
-				best_model = perform_grid_search_cv(model, param_grid, X_train,y_train)
-			trainAccuracy = np.sum(best_model.predict(X_train) == y_train)/len(y_train)
-			print(trainAccuracy)
-			predictionAccuracy = np.sum(best_model.predict(X_test) == y_test)/len(y_test)
-			print(predictionAccuracy)
-			accuracyMatrix[r, i] = predictionAccuracy
-
-
-			Labels = best_model.predict(X_test)
-			Within_events = check_points_in_nd_domain(np.array(X_test), np.array(event)[:,0], np.array(event)[:,1])
-
-			event_probability = 0
-
-			for equivalenceSpace in np.unique(Labels):
-				disintegrationConditional =  np.sum(np.logical_and(Labels == equivalenceSpace, Within_events))/np.sum(Labels == equivalenceSpace)
-				equivalenceSpace_probability = equivalenceSpaceProbability(kde_cdf, critical_values, equivalenceSpace)
-				event_probability += equivalenceSpace_probability * disintegrationConditional
-			estimationMatrix[r, i] = event_probability
-			print('n,r:',[n,r])
-	filenameTrain = f'../Results/BrusselatorSimulation/Pred_accuracy_{nTest}_{out_suffix}_{len(critical_values)}_intervals_{len(critical_values)}_{sample_method}_.csv'
-	filenamePredict = f'../Results/BrusselatorSimulation/Estimation_{nTest}_{out_suffix}_{len(critical_values)}_intervals_{len(critical_values)}_{sample_method}.csv'
-	header_string = ','.join(str(i) for i in N)
-	np.savetxt(filenameTrain, accuracyMatrix, delimiter=",", header = header_string)
-	np.savetxt(filenamePredict, estimationMatrix, delimiter=",", header = header_string)
-
-
-
-
 def accuracyComparisonNaive(out_suffix,quantity_of_interest, gradientFunction, event, N, domains, critical_values,kde_cdf, repeat  = 20):
 	global trunc_a, trunc_b, numIntervals, loc, scale
 	mseMatrix = np.zeros( shape = (repeat, len(N)) )
@@ -343,37 +235,16 @@ def event_estimation(event, n, domains, critical_values, kde_cdf,repeat = 10):
 		estimationMatrix[r] = event_probability
 	print(np.mean(estimationMatrix))
 
-########### - Events - ###################
+
+#### wrapper for parallel -------------------------------------------------------------------------------------
 
 
 
-#######
-
-# choose Pn 
-# at many pts in Lambda  Q(lambda)
-# make kde/histgram
-
-###
-
-
-def generate_POF(N,domains,critical_values,repeat = 20):
-	for i in range(repeat):
-		for j in N:
-			print([i,j] )
-			dataSIP = SIP_Data_Multi(integral_3D, DQ_Dlambda_3D, critical_values, len(domains) , *domains)
-			dataSIP.generate_POF(n = n, CONST_a = 1 ,iniPoints = 5, sampleCriteria = 'k-dDarts')
-
-
-
-## wrapper for parallel -------------------------------------------------------------------------------------
-
-
-
-def single_run(n, r, quantity_of_interest, gradientFunction, model, param_grid, event, domains,
+def single_run(out_suffix,n, r, quantity_of_interest, gradientFunction, model, param_grid, event, domains,
 			   critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
 			   OneVsRestWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
 			   equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV):
-
+	key = f"{out_suffix}_{n}_repeat_{r}"
 	dataSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
 	if sample_method == 'POF':
 		dataSIP.generate_POF(n=n, CONST_a=2, iniPoints=5, sampleCriteria='k-dDarts')
@@ -413,43 +284,124 @@ def single_run(n, r, quantity_of_interest, gradientFunction, model, param_grid, 
 
 	return r, predictionAccuracy, event_probability
 
-def accuracyComparison_parallel_repeat(quantity_of_interest, gradientFunction, model, param_grid, event,
-									   N, domains, critical_values, kde_cdf, out_suffix,
-									   nTest=2000, repeat=20, sample_method='POF', grid_search=True, max_workers=4):
+# def accuracyComparison_parallel_repeat(quantity_of_interest, gradientFunction, model, param_grid, event,
+# 									   N, domains, critical_values, kde_cdf, out_suffix,
+# 									   nTest=2000, repeat=20, sample_method='POF', grid_search=True, max_workers=4):
 
+# 	testSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
+# 	testSIP.generate_Uniform(nTest)
+# 	X_test = testSIP.df.iloc[:, :-2].values
+# 	y_test = testSIP.df['Label'].values
+
+# 	accuracyMatrix = np.zeros((repeat, len(N)))
+# 	estimationMatrix = np.zeros((repeat, len(N)))
+
+# 	with ProcessPoolExecutor(max_workers=max_workers) as executor:
+# 		futures = []
+# 		for i, n in enumerate(N):
+# 			for r in range(repeat):
+# 				f = executor.submit(
+# 					single_run, out_suffix,n, r, quantity_of_interest, gradientFunction, model, param_grid, event,
+# 					domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
+# 					OneVsRestWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
+# 					equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV
+# 				)
+# 				futures.append((i, f))
+
+# 		for i, f in tqdm(futures, desc="Processing", total=len(futures)):
+# 			r, acc, est = f.result()
+# 			accuracyMatrix[r, i] = acc
+# 			estimationMatrix[r, i] = est
+
+# 	filenameTrain = f'Results/BrusselatorSimulation/Pred_accuracy_{nTest}_{out_suffix}_{len(critical_values)+1}_intervals_{sample_method}_.csv'
+# 	filenamePredict = f'Results/BrusselatorSimulation/Estimation_{nTest}_{out_suffix}_{len(critical_values)+1}_intervals_{sample_method}.csv'
+# 	header_string = ','.join(str(i) for i in N)
+# 	np.savetxt(filenameTrain, accuracyMatrix, delimiter=",", header=header_string)
+# 	np.savetxt(filenamePredict, estimationMatrix, delimiter=",", header=header_string)
+# 	return accuracyMatrix, estimationMatrix
+
+
+
+# Wrapped single_run to include SqliteDict saving
+def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, model, param_grid, event, domains,
+					  critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
+					  OneVsRestWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
+					  equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV, db_path='results.sqlite'):
+
+	key = f"{sample_method}_{out_suffix}_{n}_repeat_{r}_intervals_{len(critical_values) + 1}"
+	with SqliteDict(db_path, autocommit=True) as db:
+		if key in db:
+			print(f"⏩ Skipping existing run: {key}")
+			return r, None, None  # Signal to skip this run
+
+		dataSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
+		if sample_method == 'POF':
+			dataSIP.generate_POF(n=n, CONST_a=2, iniPoints=5, sampleCriteria='k-dDarts')
+		else:
+			dataSIP.generate_Uniform(n)
+
+		Label = dataSIP.df['Label'].values
+		dfTrain = dataSIP.df.iloc[:, :-2].values
+		dQ = dataSIP.Gradient
+
+		X_train = dfTrain
+		y_train = Label
+
+		if isinstance(model, OneVsRestWrapper):
+			fit_para = {'dQ': dQ}
+			if grid_search:
+				grid_search_obj = GridSearchCV(model, param_grid, cv=5, scoring='accuracy', verbose=0)
+				grid_search_obj.fit(X_train, y_train, **fit_para)
+				best_model = grid_search_obj.best_estimator_
+			else:
+				best_model = model
+				best_model.fit(X_train, y_train, dQ)
+		elif isinstance(model, MLPClassifier):
+			best_model = perform_grid_search_cv(model, param_grid, X_train, y_train)
+
+		predictionAccuracy = np.sum(best_model.predict(X_test) == y_test) / len(y_test)
+
+		Labels = best_model.predict(X_test)
+		Within_events = check_points_in_nd_domain(np.array(X_test), np.array(event)[:, 0], np.array(event)[:, 1])
+
+		event_probability = 0
+		for equivalenceSpace in np.unique(Labels):
+			disintegrationConditional = np.sum(
+				np.logical_and(Labels == equivalenceSpace, Within_events)) / np.sum(Labels == equivalenceSpace)
+			equivalenceSpace_probability = equivalenceSpaceProbability(kde_cdf, critical_values, equivalenceSpace)
+			event_probability += equivalenceSpace_probability * disintegrationConditional
+
+		db[key] = {'accuracy': predictionAccuracy, 'estimation': event_probability}
+		return r, predictionAccuracy, event_probability
+
+
+
+def accuracyComparison_parallel_repeat(
+	quantity_of_interest, gradientFunction, model, param_grid, event,
+	N, domains, critical_values, kde_cdf, out_suffix,
+	nTest=2000, repeat=20, sample_method='POF', grid_search=True, max_workers=4,
+	db_path='Results/dic.sqlite'
+	):
+	# Generate test set once
 	testSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
 	testSIP.generate_Uniform(nTest)
 	X_test = testSIP.df.iloc[:, :-2].values
 	y_test = testSIP.df['Label'].values
-
-	accuracyMatrix = np.zeros((repeat, len(N)))
-	estimationMatrix = np.zeros((repeat, len(N)))
 
 	with ProcessPoolExecutor(max_workers=max_workers) as executor:
 		futures = []
 		for i, n in enumerate(N):
 			for r in range(repeat):
 				f = executor.submit(
-					single_run, n, r, quantity_of_interest, gradientFunction, model, param_grid, event,
+					single_run_sqlite, out_suffix,n, r, quantity_of_interest, gradientFunction, model, param_grid, event,
 					domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
 					OneVsRestWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
-					equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV
+					equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV, db_path
 				)
 				futures.append((i, f))
 
 		for i, f in tqdm(futures, desc="Processing", total=len(futures)):
 			r, acc, est = f.result()
-			accuracyMatrix[r, i] = acc
-			estimationMatrix[r, i] = est
-
-	filenameTrain = f'Results/BrusselatorSimulation/Pred_accuracy_{nTest}_{out_suffix}_{len(critical_values)+1}_intervals_{sample_method}_.csv'
-	filenamePredict = f'Results/BrusselatorSimulation/Estimation_{nTest}_{out_suffix}_{len(critical_values)+1}_intervals_{sample_method}.csv'
-	header_string = ','.join(str(i) for i in N)
-	np.savetxt(filenameTrain, accuracyMatrix, delimiter=",", header=header_string)
-	np.savetxt(filenamePredict, estimationMatrix, delimiter=",", header=header_string)
-	return accuracyMatrix, estimationMatrix
-
-
 
 
 
@@ -481,21 +433,22 @@ def main():
 	  }
 	
 	accuracyComparison_parallel_repeat(
-    quantity_of_interest=function2,
-    gradientFunction=Gradient_f2,
-    model=model,
-    param_grid=param_grid_GMSVM_reduced,
-    event=event,
-    N=N,
-    domains=domains,
-    critical_values=critical_values,
-    kde_cdf=kde_cdf,
-    out_suffix='function2_PPSVMG',
-    nTest=nTest,
-    repeat=repeat,
-    sample_method='POF',
-    grid_search=False,
-    max_workers=cpu_count() // 2  # set number of parallel processes here
+	quantity_of_interest=function2,
+	gradientFunction=Gradient_f2,
+	model=model,
+	param_grid=param_grid_GMSVM_reduced,
+	event=event,
+	N=N,
+	domains=domains,
+	critical_values=critical_values,
+	kde_cdf=kde_cdf,
+	out_suffix='function2_PPSVMG',
+	nTest=nTest,
+	repeat=repeat,
+	sample_method='POF',
+	grid_search=False,
+	max_workers=cpu_count() // 2,  # set number of parallel processes here,
+	db_path='Results/dic.sqlite'
 	)
 	#accuracyComparisonNaive('function2_PPSVMG',function2, Gradient_f2, event, N, domains, critical_values,kde_cdf, repeat  = 20)
 
