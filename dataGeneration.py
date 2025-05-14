@@ -494,13 +494,16 @@ class SIP_Data(object):
 		self.df = []
 		self.Gradient = []
 
-	def generate_Uniform(self,n, Initialization = True):
+	def generate_Uniform(self,n, Initialization = True, Gradient =True):
 		points = np.array([np.random.uniform(low, high, n) for low, high in self.domain]).T
 
 		self.df = pd.DataFrame(points, columns = [f'X{i+1}' for i in range(self.dim)])
 
 		Z = self.df.apply(self.function_y, axis = 1)
-		self.Gradient = self.df.apply(self.function_gradient, axis = 1)
+		if Gradient == True:
+			self.Gradient = self.df.apply(self.function_gradient, axis = 1)
+		else:
+			self.Gradient = None
 		self.df['Label'] = np.zeros(n) -1
 		index = Z >= self.CONST_threshold 
 		self.df['Label'][index] = 1
