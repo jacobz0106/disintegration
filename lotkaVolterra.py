@@ -34,13 +34,6 @@ class lotkaVolterra(object):
 		# loop from t to T-t
 		if self.method == 'fw_Euler':
 			for i in range(1,self.n):        
-				# def equations(vars):
-				# 	z1,z2,z3 = vars
-				# 	eq1 = t*(r1*z1*(1 - alpha[0,0]*z1 - alpha12*z2 - alpha13*z3)) + ls[i-1][0] - z1
-				# 	eq2 = t*(r2*z2*(1 - alpha12*z1 - alpha[1,1]*z2 - alpha23*z3)) + ls[i-1][1] - z2
-				# 	eq3 = t*(r3*z3*(1 - alpha13*z1 - alpha23*z2 - alpha[2,2]*z3)) + ls[i-1][2] - z3
-				# 	return [eq1, eq2,eq3]
-				# ls[i] = fsolve(equations, ls[i-1])
 				ls_intermediate = np.zeros(3)     
 				ls_intermediate[0] = t*(r1*ls[i-1][0]*(1 - alpha[0,0]*ls[i-1][0] - alpha[0,1]*ls[i-1][1] - alpha[0,2]*ls[i-1][2])) + ls[i-1][0]
 				ls_intermediate[1] = t*(r2*ls[i-1][1]*(1 - alpha[1,0]*ls[i-1][0] - alpha[1,1]*ls[i-1][1] - alpha[1,2]*ls[i-1][2])) + ls[i-1][1] 
@@ -60,204 +53,112 @@ class lotkaVolterra(object):
 		self.df = ls
 		return ls
 
-	def gradient_r1(self, R,interaction_terms):
+	def two_step_forward_gradient(self, R, interaction_terms, sensitivity_source):
+		"""
+		Generalized two-step forward method for gradient computation.
+		
+		Parameters:
+		- R: list of r1, r2, r3
+		- interaction_terms: 3x3 matrix
+		- sensitivity_source: string like 'r1', 'alpha12', etc.
+		"""
 		self.function_z(R, interaction_terms)
-		ls = np.zeros((self.n,3))
-		ls[0] = (0,0,0)
-		r1, r2,r3 = R
+		ls = np.zeros((self.n, 3))
+		ls[0] = (0, 0, 0)
+		r1, r2, r3 = R
 		alpha = interaction_terms
-		t = 0
 		F = self.df
-		for i in range(1, self.n):
-			t += self.inc
-			z1,z2,z3 = F[i]
-			def equations(vars):
-				y1,y2,y3 = vars
-				eq1=  self.inc * (r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*y1 - alpha[0,1]*r1*z1*y2 - alpha[0,2]*r1*z1*y3 + z1*(1 - alpha[0,0]*z1 - alpha[0,1]*z2 - alpha[0,2]*z3))  + ls[i-1][0] - y1
-				eq2=  self.inc * (-alpha[1,0]*r2*z2*y1 + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*y2 - alpha[1,2]*r2*z2*y3 ) + ls[i-1][1] - y2
-				eq3=  self.inc * (-alpha[2,0]*r3*z3*y1 - alpha[2,1]*r3*z3*y2 + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*y3  ) + ls[i-1][2] - y3
-				return [eq1, eq2, eq3]
-			ls[i] = fsolve(equations, ls[i-1])
 
-			# y1=  self.inc * (r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*ls[i-1][0]  - alpha[0,1]*r1*z1*ls[i-1][1]  - alpha[0,2]*r1*z1*ls[i-1][2]  + z1*(1 - alpha[0,0]*z1 - alpha[0,1]*z2 - alpha[0,2]*z3))  + ls[i-1][0] 
-			# y2=  self.inc * (-alpha[1,0]*r2*z2*ls[i-1][0]  + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*ls[i-1][1]  - alpha[1,2]*r2*z2*ls[i-1][2]  ) + ls[i-1][1] 
-			# y3=  self.inc * (-alpha[2,0]*r3*z3*ls[i-1][0]  - alpha[2,1]*r3*z3*ls[i-1][1]  + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*ls[i-1][2]   ) + ls[i-1][2] 
-			# z1=  self.inc/2 * ( r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*ls[i-1][0]  - alpha[0,1]*r1*z1*ls[i-1][1]  - alpha[0,2]*r1*z1*ls[i-1][2]  + z1*(1 - alpha[0,0]*z1 - alpha[0,1]*z2 - alpha[0,2]*z3)
-			#  	+ r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*ls[i-1][0]  - alpha[0,1]*r1*z1*ls[i-1][1]  - alpha[0,2]*r1*z1*ls[i-1][2]  + z1*(1 - alpha[0,0]*z1 - alpha[0,1]*z2 - alpha[0,2]*z3))  + ls[i-1][0] 
-			# z2=  self.inc/2 * ( -alpha[1,0]*r2*z2*ls[i-1][0]  + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*ls[i-1][1]  - alpha[1,2]*r2*z2*ls[i-1][2]
-			# 	-alpha[1,0]*r2*z2*ls[i-1][0]  + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*ls[i-1][1]  - alpha[1,2]*r2*z2*ls[i-1][2]  ) + ls[i-1][1] 
-			# z3=  self.inc/2 * (-alpha[2,0]*r3*z3*ls[i-1][0]  - alpha[2,1]*r3*z3*ls[i-1][1]  + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*ls[i-1][2]
-			# 	-alpha[2,0]*r3*z3*ls[i-1][0]  - alpha[2,1]*r3*z3*ls[i-1][1]  + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*ls[i-1][2]   ) + ls[i-1][2] 
-			# ls[i] = [z1,z2, z3]
+		for i in range(1, self.n):
+			z1, z2, z3 = F[i-1]
+			y1, y2, y3 = ls[i-1]
+
+			# base derivatives
+			dz = [z1, z2, z3]
+			dy = [y1, y2, y3]
+			dr = [r1, r2, r3]
+
+			def rhs(z, y):
+				g = np.zeros(3)
+				# compute gradient equations
+				for idx in range(3):
+					zi = z[idx]
+					ri = dr[idx]
+					terms = 0
+					for j in range(3):
+						if j == idx:
+							terms += 2 * alpha[idx, j] * z[j]
+						else:
+							terms += alpha[idx, j] * z[j]
+
+					g[idx] = self.inc * (ri * (1 - terms) * y[idx])
+					for j in range(3):
+						if j != idx:
+							g[idx] -= self.inc * alpha[idx, j] * ri * z[idx] * y[j]
+
+				# insert source terms
+				if sensitivity_source == 'r1':
+					g[0] += self.inc * z[0] * (1 - alpha[0,0]*z[0] - alpha[0,1]*z[1] - alpha[0,2]*z[2])
+				elif sensitivity_source == 'r2':
+					g[1] += self.inc * z[1] * (1 - alpha[1,0]*z[0] - alpha[1,1]*z[1] - alpha[1,2]*z[2])
+				elif sensitivity_source == 'r3':
+					g[2] += self.inc * z[2] * (1 - alpha[2,0]*z[0] - alpha[2,1]*z[1] - alpha[2,2]*z[2])
+				elif sensitivity_source == 'alpha12':
+					g[0] -= self.inc * r1 * z[0] * z[1]
+				elif sensitivity_source == 'alpha13':
+					g[0] -= self.inc * r1 * z[0] * z[2]
+				elif sensitivity_source == 'alpha21':
+					g[1] -= self.inc * r2 * z[1] * z[0]
+				elif sensitivity_source == 'alpha23':
+					g[1] -= self.inc * r2 * z[1] * z[2]
+				elif sensitivity_source == 'alpha31':
+					g[2] -= self.inc * r3 * z[2] * z[0]
+				elif sensitivity_source == 'alpha32':
+					g[2] -= self.inc * r3 * z[2] * z[1]
+				return g
+
+			# Predictor step
+			pred = rhs(dz, dy)
+			y_pred = [y + p for y, p in zip(dy, pred)]
+
+			# Corrector step
+			z_next = F[i]
+			corr = rhs(z_next, y_pred)
+
+			# Final update
+			ls[i] = [y + 0.5 * (dp + dc) for y, dp, dc in zip(dy, pred, corr)]
+
 		return ls[-1][-1]
 
+	def gradient_r1(self, R, interaction_terms):
+		return self.two_step_forward_gradient(R, interaction_terms, 'r1')
+
+	def gradient_r2(self, R, interaction_terms):
+		return self.two_step_forward_gradient(R, interaction_terms, 'r2')
+
+	def gradient_r3(self, R, interaction_terms):
+		return self.two_step_forward_gradient(R, interaction_terms, 'r3')
+
+	def gradient_alpha12(self, R, interaction_terms):
+		return self.two_step_forward_gradient(R, interaction_terms, 'alpha12')
+
+	def gradient_alpha13(self, R, interaction_terms):
+		return self.two_step_forward_gradient(R, interaction_terms, 'alpha13')
+
+	def gradient_alpha21(self, R, interaction_terms):
+		return self.two_step_forward_gradient(R, interaction_terms, 'alpha21')
+
+	def gradient_alpha23(self, R, interaction_terms):
+		return self.two_step_forward_gradient(R, interaction_terms, 'alpha23')
+
+	def gradient_alpha31(self, R, interaction_terms):
+		return self.two_step_forward_gradient(R, interaction_terms, 'alpha31')
+
+	def gradient_alpha32(self, R, interaction_terms):
+		return self.two_step_forward_gradient(R, interaction_terms, 'alpha32')
 
 
-	def gradient_r2(self, R,interaction_terms):
-		ls = np.zeros((self.n,3))
-		ls[0] = (0,0,0)
-		r1, r2,r3 = R
-		alpha = interaction_terms
-		t = 0
-		F = self.df
-		for i in range(1, self.n):
-			t += self.inc
-			z1,z2,z3 = F[i]
-			def equations(vars):
-				y1,y2,y3 = vars
-				eq1=  self.inc * (r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*y1 - alpha[0,1]*r1*z1*y2 - alpha[0,2]*r1*z1*y3 )  + ls[i-1][0] - y1
-				eq2=  self.inc * (-alpha[1,0]*r2*z2*y1 + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*y2 - alpha[1,2]*r2*z2*y3 +  z2*(1 - alpha[1,0]*z1 - alpha[1,1]*z2 - alpha[1,2]*z3)) + ls[i-1][1] - y2
-				eq3=  self.inc * (-alpha[2,0]*r3*z3*y1 - alpha[2,1]*r3*z3*y2 + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*y3  ) + ls[i-1][2] - y3
-				return [eq1, eq2, eq3]
-			ls[i] = fsolve(equations, ls[i-1])
-		return ls[-1][-1]
-
-
-	def gradient_r3(self, R,interaction_terms):
-		ls = np.zeros((self.n,3))
-		ls[0] = (0,0,0)
-		r1, r2,r3 = R
-		alpha = interaction_terms
-		t = 0
-		F = self.df
-		for i in range(1, self.n):
-			t += self.inc
-			z1,z2,z3 = F[i]
-			def equations(vars):
-				y1,y2,y3 = vars
-				eq1=  self.inc * (r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*y1 - alpha[0,1]*r1*z1*y2 - alpha[0,2]*r1*z1*y3 )  + ls[i-1][0] - y1
-				eq2=  self.inc * (-alpha[1,0]*r2*z2*y1 + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*y2 - alpha[1,2]*r2*z2*y3 ) + ls[i-1][1] - y2
-				eq3=  self.inc * (-alpha[2,0]*r3*z3*y1 - alpha[2,1]*r3*z3*y2 + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*y3  + z3*(1 - alpha[2,0]*z1 - alpha[2,1]*z2 - alpha[2,2]*z3)) + ls[i-1][2] - y3
-				return [eq1, eq2, eq3]
-			ls[i] = fsolve(equations, ls[i-1])
-		return ls[-1][-1]
-
-	def gradient_alpha12(self, R,interaction_terms):
-		ls = np.zeros((self.n,3))
-		ls[0] = (0,0,0)
-		r1, r2,r3 = R
-		alpha = interaction_terms
-		t = 0
-		F = self.df
-		for i in range(1, self.n):
-			t += self.inc
-			z1,z2,z3 = F[i]
-			def equations(vars):
-				y1,y2,y3 = vars
-				eq1=  self.inc * (r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*y1 - alpha[0,1]*r1*z1*y2 - alpha[0,2]*r1*z1*y3  -r1*z1*z2)  + ls[i-1][0] - y1
-				eq2=  self.inc * (-alpha[1,0]*r2*z2*y1 + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*y2 - alpha[1,2]*r2*z2*y3 ) + ls[i-1][1] - y2
-				eq3=  self.inc * (-alpha[2,0]*r3*z3*y1 - alpha[2,1]*r3*z3*y2 + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*y3 ) + ls[i-1][2] - y3
-				return [eq1, eq2, eq3]
-			ls[i] = fsolve(equations, ls[i-1])
-			# y1=  self.inc * (r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*ls[i-1][0] - alpha[0,1]*r1*z1*ls[i-1][1] - alpha[0,2]*r1*z1*ls[i-1][2] - r1*z1*z2)  + ls[i-1][0] 
-			# y2=  self.inc * (-alpha[1,0]*r2*z2*ls[i-1][0] + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*ls[i-1][1] - alpha[1,2]*r2*z2*ls[i-1][2] ) + ls[i-1][1] 
-			# y3=  self.inc * (-alpha[2,0]*r3*z3*ls[i-1][0] - alpha[2,1]*r3*z3*ls[i-1][1] + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*ls[i-1][2] ) + ls[i-1][2]
-				
-			# l1=  self.inc/2 * (r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*y1 - alpha[0,1]*r1*z1*y2 - alpha[0,2]*r1*z1*y3 -r1*z1*z2+ 
-			# 	r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*ls[i-1][0] - alpha[0,1]*r1*z1*ls[i-1][1] - alpha[0,2]*r1*z1*ls[i-1][2] -r1*z1*z2)  + ls[i-1][0] 
-			# l2=  self.inc/2 * (-alpha[1,0]*r2*z2*y1 + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*y2 - alpha[1,2]*r2*z2*y3
-			# 	-alpha[1,0]*r2*z2*ls[i-1][0] + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*ls[i-1][1] - alpha[1,2]*r2*z2*ls[i-1][2] ) + ls[i-1][1] 
-			# l3=  self.inc/2 * (-alpha[2,0]*r3*z3*y1 - alpha[2,1]*r3*z3*y2 + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*y3
-			# 	-alpha[2,0]*r3*z3*ls[i-1][0] - alpha[2,1]*r3*z3*ls[i-1][1] + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*ls[i-1][2] ) + ls[i-1][2]
-				
-			# ls[i] = [l1,l2,l3]
-		return ls[-1][-1]
-
-
-	def gradient_alpha13(self, R,interaction_terms):
-		ls = np.zeros((self.n,3))
-		ls[0] = (0,0,0)
-		r1, r2,r3 = R
-		alpha = interaction_terms
-		t = 0
-		F = self.df
-		for i in range(1, self.n):
-			t += self.inc
-			z1,z2,z3 = F[i]
-			def equations(vars):
-				y1,y2,y3 = vars
-				eq1=  self.inc * (r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*y1 - alpha[0,1]*r1*z1*y2 - alpha[0,2]*r1*z1*y3  -r1*z1*z3)  + ls[i-1][0] - y1
-				eq2=  self.inc * (-alpha[1,0]*r2*z2*y1 + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*y2 - alpha[1,2]*r2*z2*y3 ) + ls[i-1][1] - y2
-				eq3=  self.inc * (-alpha[2,0]*r3*z3*y1 - alpha[2,1]*r3*z3*y2 + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*y3 ) + ls[i-1][2] - y3
-				return [eq1, eq2, eq3]
-			ls[i] = fsolve(equations, ls[i-1])
-		return ls[-1][-1]
-
-	def gradient_alpha23(self, R,interaction_terms):
-		ls = np.zeros((self.n,3))
-		ls[0] = (0,0,0)
-		r1, r2,r3 = R
-		alpha = interaction_terms
-		t = 0
-		F = self.df
-		for i in range(1, self.n):
-			t += self.inc
-			z1,z2,z3 = F[i]
-			def equations(vars):
-				y1,y2,y3 = vars
-				eq1=  self.inc * (r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*y1 - alpha[0,1]*r1*z1*y2 - alpha[0,2]*r1*z1*y3 )  + ls[i-1][0] - y1
-				eq2=  self.inc * (-alpha[1,0]*r2*z2*y1 + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*y2 - alpha[1,2]*r2*z2*y3 - r2*z2*z3) + ls[i-1][1] - y2
-				eq3=  self.inc * (-alpha[2,0]*r3*z3*y1 - alpha[2,1]*r3*z3*y2 + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*y3 ) + ls[i-1][2] - y3
-				return [eq1, eq2, eq3]
-			ls[i] = fsolve(equations, ls[i-1])
-		return ls[-1][-1]
-
-	def gradient_alpha21(self, R,interaction_terms):
-		ls = np.zeros((self.n,3))
-		ls[0] = (0,0,0)
-		r1, r2,r3 = R
-		alpha = interaction_terms
-		t = 0
-		F = self.df
-		for i in range(1, self.n):
-			t += self.inc
-			z1,z2,z3 = F[i]
-			def equations(vars):
-				y1,y2,y3 = vars
-				eq1=  self.inc * (r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*y1 - alpha[0,1]*r1*z1*y2 - alpha[0,2]*r1*z1*y3)  + ls[i-1][0] - y1
-				eq2=  self.inc * (-alpha[1,0]*r2*z2*y1 + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*y2 - alpha[1,2]*r2*z2*y3 - r2*z2*z1) + ls[i-1][1] - y2
-				eq3=  self.inc * (-alpha[2,0]*r3*z3*y1 - alpha[2,1]*r3*z3*y2 + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*y3 ) + ls[i-1][2] - y3
-				return [eq1, eq2, eq3]
-			ls[i] = fsolve(equations, ls[i-1])
-		return ls[-1][-1]
-
-	def gradient_alpha31(self, R,interaction_terms):
-		ls = np.zeros((self.n,3))
-		ls[0] = (0,0,0)
-		r1, r2,r3 = R
-		alpha = interaction_terms
-		t = 0
-		F = self.df
-		for i in range(1, self.n):
-			t += self.inc
-			z1,z2,z3 = F[i]
-			def equations(vars):
-				y1,y2,y3 = vars
-				eq1=  self.inc * (r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*y1 - alpha[0,1]*r1*z1*y2 - alpha[0,2]*r1*z1*y3)  + ls[i-1][0] - y1
-				eq2=  self.inc * (-alpha[1,0]*r2*z2*y1 + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*y2 - alpha[1,2]*r2*z2*y3) + ls[i-1][1] - y2
-				eq3=  self.inc * (-alpha[2,0]*r3*z3*y1 - alpha[2,1]*r3*z3*y2 + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*y3 - r3*z3*z1) + ls[i-1][2] - y3
-				return [eq1, eq2, eq3]
-			ls[i] = fsolve(equations, ls[i-1])
-		return ls[-1][-1]
-
-	def gradient_alpha32(self, R,interaction_terms):
-		ls = np.zeros((self.n,3))
-		ls[0] = (0,0,0)
-		r1, r2,r3 = R
-		alpha = interaction_terms
-		t = 0
-		F = self.df
-		for i in range(1, self.n):
-			t += self.inc
-			z1,z2,z3 = F[i]
-			def equations(vars):
-				y1,y2,y3 = vars
-				eq1=  self.inc * (r1*(1 - (alpha[0,0]*z1*2 + alpha[0,1]*z2 + alpha[0,2]*z3))*y1 - alpha[0,1]*r1*z1*y2 - alpha[0,2]*r1*z1*y3)  + ls[i-1][0] - y1
-				eq2=  self.inc * (-alpha[1,0]*r2*z2*y1 + r2*(1 - alpha[1,1]*z2*2 - alpha[1,0]*z1 - alpha[1,2]*z3)*y2 - alpha[1,2]*r2*z2*y3) + ls[i-1][1] - y2
-				eq3=  self.inc * (-alpha[2,0]*r3*z3*y1 - alpha[2,1]*r3*z3*y2 + r3*(1 - alpha[2,2]*z3*2 - alpha[2,0]*z1 - alpha[2,1]*z2)*y3- r3*z3*z2) + ls[i-1][2] - y3
-				return [eq1, eq2, eq3]
-			ls[i] = fsolve(equations, ls[i-1])
-		return ls[-1][-1]
+# ----- wrapper -------
 
 	def quantity_interest(self,paras):
 		R = paras[:3]
@@ -470,8 +371,7 @@ def Gradient_check(h = 0.001):
 
 # lotka = lotkaVolterra()
 # lotka.cross_section()
-
-
+#Gradient_check(h = 0.01)
 
 
 
