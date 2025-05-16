@@ -239,144 +239,11 @@ def event_estimation(function_y,function_Gradient,event, n, domains, critical_va
 
 
 #### wrapper for parallel -------------------------------------------------------------------------------------
-# lock = Lock()
-# shared_lock = None
+shared_lock = None
 
-# def initializer(l):
-# 	global shared_lock
-# 	shared_lock = l  # available to all worker processes
-
-# # Wrapped single_run to include SqliteDict saving
-# def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, model, param_grid, event, domains,
-# 					  critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
-# 					  OneVsRestWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
-# 					  equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV, db_path='results.sqlite'):
-# 	global shared_lock
-# 	key = f"{sample_method}_{out_suffix}_{n}_repeat_{r}_intervals_{len(critical_values) + 1}"
-# 	with shared_lock:
-# 		with SqliteDict(db_path, flag = 'r') as db:
-# 			if key in db:
-# 				print(f"⏩ Skipping existing run: {key}")
-# 				return r, None, None  # Signal to skip this run
-
-# 	dataSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
-# 	if sample_method == 'POF':
-# 		dataSIP.generate_POF(n=n, CONST_a=2, iniPoints=5, sampleCriteria='k-dDarts')
-# 	else:
-# 		dataSIP.generate_Uniform(n)
-
-# 	Label = dataSIP.df['Label'].values
-# 	dfTrain = dataSIP.df.iloc[:, :-2].values
-# 	dQ = dataSIP.Gradient
-
-# 	X_train = dfTrain
-# 	y_train = Label
-
-# 	if isinstance(model, OneVsRestWrapper):
-# 		fit_para = {'dQ': dQ}
-# 		if grid_search:
-# 			grid_search_obj = GridSearchCV(model, param_grid, cv=5, scoring='accuracy', verbose=0)
-# 			grid_search_obj.fit(X_train, y_train, **fit_para)
-# 			best_model = grid_search_obj.best_estimator_
-# 		else:
-# 			best_model = model
-# 			best_model.fit(X_train, y_train, dQ)
-# 	elif isinstance(model, MLPClassifier):
-# 		best_model = perform_grid_search_cv(model, param_grid, X_train, y_train)
-
-# 	predictionAccuracy = np.sum(best_model.predict(X_test) == y_test) / len(y_test)
-
-# 	Labels = best_model.predict(X_test)
-# 	Within_events = check_points_in_nd_domain(np.array(X_test), np.array(event)[:, 0], np.array(event)[:, 1])
-
-# 	event_probability = 0
-# 	for equivalenceSpace in np.unique(Labels):
-# 		disintegrationConditional = np.sum(
-# 			np.logical_and(Labels == equivalenceSpace, Within_events)) / np.sum(Labels == equivalenceSpace)
-# 		equivalenceSpace_probability = equivalenceSpaceProbability(kde_cdf, critical_values, equivalenceSpace)
-# 		event_probability += equivalenceSpace_probability * disintegrationConditional
-# 	with shared_lock:
-# 		with SqliteDict(db_path, autocommit=True) as db:
-# 			db[key] = {'accuracy': predictionAccuracy, 'estimation': event_probability}
-# 	return r, predictionAccuracy, event_probability
-
-# def accuracyComparison_parallel_repeat(
-# 	quantity_of_interest, gradientFunction, model, param_grid, event,
-# 	N, domains, critical_values, kde_cdf, out_suffix,
-# 	nTest=2000, repeat=20, sample_method='POF', grid_search=True, max_workers=4,
-# 	db_path='Results/dic.sqlite'
-# 	):
-	
-
-# 	ctx = get_context("spawn")  # safer for clusters
-# 	lock = ctx.Lock()
-
-# 	# Generate test set once
-# 	testSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
-# 	testSIP.generate_Uniform(nTest)
-# 	X_test = testSIP.df.iloc[:, :-2].values
-# 	y_test = testSIP.df['Label'].values
-
-# 	with ctx.Pool(processes=max_workers, initializer=initializer, initargs=(lock,)) as pool:
-
-# 		# partial is safer than lambda for pickling
-# 		task_func = partial(single_run_sqlite,
-# 							out_suffix=out_suffix,
-# 							quantity_of_interest=quantity_of_interest,
-# 							gradientFunction=gradientFunction,
-# 							model=model,
-# 							param_grid=param_grid,
-# 							event=event,
-# 							domains=domains,
-# 							critical_values=critical_values,
-# 							kde_cdf=kde_cdf,
-# 							X_test=X_test,
-# 							y_test=y_test,
-# 							sample_method=sample_method,
-# 							grid_search=grid_search,
-# 							OneVsRestWrapper=OneVsRestWrapper,
-# 							MLPClassifier=MLPClassifier,
-# 							SIP_Data_Multi=SIP_Data_Multi,
-# 							check_points_in_nd_domain=check_points_in_nd_domain,
-# 							equivalenceSpaceProbability=equivalenceSpaceProbability,
-# 							perform_grid_search_cv=perform_grid_search_cv,
-# 							GridSearchCV=GridSearchCV,
-# 							db_path=db_path)
-
-# 		args = [(n, r) for n in N for r in range(repeat)]
-# 		results = list(tqdm(pool.starmap(task_func, args), total=len(args)))
-
-
-
-# def accuracyComparison_parallel_repeat(
-# 	quantity_of_interest, gradientFunction, model, param_grid, event,
-# 	N, domains, critical_values, kde_cdf, out_suffix,
-# 	nTest=2000, repeat=20, sample_method='POF', grid_search=True, max_workers=4,
-# 	db_path='Results/dic.sqlite'
-# 	):
-# 	# Generate test set once
-# 	testSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
-# 	testSIP.generate_Uniform(nTest)
-# 	X_test = testSIP.df.iloc[:, :-2].values
-# 	y_test = testSIP.df['Label'].values
-
-# 	ctx = get_context("spawn")  # safer for clusters
-# 	lock = ctx.Lock()
-
-# 	with ProcessPoolExecutor(max_workers=max_workers) as executor:
-# 		futures = []
-# 		for i, n in enumerate(N):
-# 			for r in range(repeat):
-# 				f = executor.submit(
-# 					single_run_sqlite, out_suffix,n, r, quantity_of_interest, gradientFunction, model, param_grid, event,
-# 					domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
-# 					OneVsRestWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
-# 					equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV, db_path
-# 				)
-# 				futures.append((i, f))
-
-# 		for i, f in tqdm(futures, desc="Processing", total=len(futures)):
-# 			r, acc, est = f.result()
+def initializer(lock_):
+	global shared_lock
+	shared_lock = lock_
 
 
 def run_single_task(arg):
@@ -391,9 +258,6 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 	if key in db_keys:
 		print(f"Skipping existing run: {key}")
 		return None  # Skip
-
-	# ... [same logic as before, excluding any SQLite writing]
-
 
 	dataSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
 	if sample_method == 'POF':
@@ -467,6 +331,9 @@ def accuracyComparison_parallel_repeat(
 	results_to_write = {}
 	last_write_time = time.time()
 
+	# create a lock for file access
+	lock = Lock()
+
 	with ctx.Pool(processes=max_workers) as pool:
 		for result in tqdm(pool.imap_unordered(run_single_task, args), total=len(args)):
 			if result is not None:
@@ -475,9 +342,10 @@ def accuracyComparison_parallel_repeat(
 				results_to_write[key] = {'accuracy': acc, 'estimation': est}
 
 			# Step 5: Periodically flush results to SQLite
-			if time.time() - last_write_time >= 600:  # 10 minutes
-				with SqliteDict(db_path, autocommit=True) as db:
-					db.update(results_to_write)
+			if time.time() - last_write_time >= 600 and results_to_write:  # 10 minutes
+				with lock:
+					with SqliteDict(db_path, autocommit=True) as db:
+						db.update(results_to_write)
 				results_to_write = {}
 				last_write_time = time.time()
 
@@ -488,29 +356,7 @@ def accuracyComparison_parallel_repeat(
 
 	return results
 	
-	# ctx = get_context("spawn")
-	# lock = ctx.Lock()
 
-	# testSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
-	# testSIP.generate_Uniform(nTest, Gradient = False)
-	# X_test = testSIP.df.iloc[:, :-2].values
-	# y_test = testSIP.df['Label'].values
-
-	# args = [
-	# 	(out_suffix, n, r, quantity_of_interest, gradientFunction, model, param_grid, event,
-	# 	 domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
-	# 	 OneVsRestWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
-	# 	 equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV, db_path)
-	# 	for n in N for r in range(repeat)
-	# ]
-
-	# with ctx.Pool(processes=max_workers, initializer=initializer, initargs=(lock,)) as pool:
-	# 	#results = list(tqdm(pool.starmap(single_run_sqlite, args), total=len(args)))
-	# 	results = []
-	# 	for result in tqdm(pool.imap_unordered(run_single_task, args), total=len(args)):
-	# 		results.append(result)
-	
-	# return results
 
 
 

@@ -513,7 +513,7 @@ class GMSVM_reduced(object):
 		self.Euc_d = np.array([Euclidean_distance_vector(mp, self.cbp.midpoints) for mp in self.cbp.midpoints])
 		self.midpointClusters = []
 		for midpoint, i in zip(self.cbp.midpoints, range(len(self.cbp.midpoints) )):
-			nearest_index = np.argsort(self.Euc_d[:,i])[1:self.clusterSize +1 ]
+			nearest_index = np.argsort(self.Euc_d[:,i])[0:self.clusterSize +1 ]
 			self.midpointClusters.append(nearest_index)
 		if self.similarity < 1.0:
 			self.reduce_clusters()
