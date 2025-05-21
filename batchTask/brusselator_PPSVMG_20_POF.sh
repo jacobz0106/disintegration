@@ -7,4 +7,4 @@ pip install -r ../requirements.txt
 export OMP_NUM_THREADS=1
 export GRB_TOKENSERVER=license1.computecanada.ca 
 echo "installation of req packages done."
-python ../event_estimation.py bruseelator PPSVMG 20 POF
+python ../event_estimation.py brusselator PPSVMG 20 POF
