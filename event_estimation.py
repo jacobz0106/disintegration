@@ -423,7 +423,7 @@ def main():
 	#example, model, numintervals, sample_method  = ['function2_PPSVMG', 'function2_NN', Brusselator, Elliptic, Function1, Function2], sample method 
 	example, model, numIntervals, sample_method  = sys.argv[1:5]
 	numIntervals = int(numIntervals)
-	n = 200
+	n = 5000
 	N = [100,120,140,160,180, 200,250,300,400,600,800,1000, 1400,1600,2000]
 	nTest = 5000
 	repeat = 30
