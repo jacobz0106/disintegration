@@ -29,7 +29,7 @@ with warnings.catch_warnings():
 	warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 
-# Function to create model, required for KerasRegressor
+# Function to create model
 def sequential_model(layers=1, neurons=10,activation = 'relu'):
 	model = Sequential()
 	model.add(Dense(neurons, input_dim=3, activation=activation))  # Assuming input features are 10
@@ -61,7 +61,7 @@ def perform_grid_search_cv(model, param_grid, X, y, cv=5,n_jobs=1):
 	Perform hyperparameter tuning using GridSearchCV and cross-validation.
 
 	Parameters:
-	- model: Estimator object (e.g., a classifier or regressor).
+	- model: Estimator object.
 	- param_grid: Dictionary of hyperparameters to search.
 	- X: Feature matrix.
 	- y: Target vector.
@@ -184,8 +184,7 @@ def equivalenceSpaceProbability(kde_cdf, critical_values, i):
 		return kde_cdf(critical_values[i]) - kde_cdf(critical_values[i-1])
 
 
-def accuracyComparisonNaive(out_suffix,quantity_of_interest, gradientFunction, event, N, domains, critical_values,kde_cdf, repeat  = 20):
-	global trunc_a, trunc_b, numIntervals, loc, scale
+def accuracyComparisonNaive(example, quantity_of_interest, gradientFunction, event, N, domains, critical_values,kde_cdf, repeat  = 20):
 	mseMatrix = np.zeros( shape = (repeat, len(N)) )
 	estimationMatrix = np.zeros( shape = (repeat, len(N)) )
 
@@ -203,14 +202,13 @@ def accuracyComparisonNaive(out_suffix,quantity_of_interest, gradientFunction, e
 			Within_events = check_points_in_nd_domain(np.array(X_train), np.array(event)[:,0], np.array(event)[:,1])
 			event_probability = 0
 
-			a, b = (trunc_a - loc) / scale, (trunc_b - loc) / scale
 			for equivalenceSpace in np.unique(Labels):
 				disintegrationConditional =  np.sum(np.logical_and(Labels == equivalenceSpace, Within_events))/np.sum(Labels == equivalenceSpace)
 				equivalenceSpace_probability = equivalenceSpaceProbability(kde_cdf, critical_values, equivalenceSpace)
 				event_probability += equivalenceSpace_probability * disintegrationConditional
 			estimationMatrix[r, i] = event_probability
 			print('n,r:',[n,r])
-	filenamePredict = f'../Results/BrusselatorSimulation/Estimation_{out_suffix}_interval_{len(critical_values)+1}_Naive.csv'
+	filenamePredict = f'Results/Simulation/{example}/Estimation_interval_{len(critical_values)+1}_Naive.csv'
 	header_string = ','.join(str(i) for i in N)
 	np.savetxt(filenamePredict, estimationMatrix, delimiter=",", header = header_string)
 
@@ -238,6 +236,11 @@ def event_estimation(function_y,function_Gradient,event, n, domains, critical_va
 	print(np.mean(estimationMatrix))
 
 
+
+#####
+
+
+
 #### wrapper for parallel -------------------------------------------------------------------------------------
 shared_lock = None
 
@@ -251,7 +254,7 @@ def run_single_task(arg):
 
 def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, model, param_grid, event,
 					  domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
-					  OneVsRestWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
+					  ClassifierChainWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
 					  equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV, db_keys):
 	key = f"{sample_method}_{out_suffix}_{n}_repeat_{r}_intervals_{len(critical_values) + 1}"
 
@@ -275,7 +278,7 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 	X_train = dfTrain
 	y_train = Label
 
-	if isinstance(model, OneVsRestWrapper):
+	if isinstance(model, ClassifierChainWrapper):
 		fit_para = {'dQ': dQ}
 		if grid_search:
 			grid_search_obj = GridSearchCV(model, param_grid, cv=5, scoring='accuracy', verbose=0)
@@ -320,7 +323,7 @@ def accuracyComparison_parallel_repeat(
 	args = [
 		(out_suffix, n, r, quantity_of_interest, gradientFunction, model, param_grid, event,
 		 domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
-		 OneVsRestWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
+		 ClassifierChainWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
 		 equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV, db_keys)
 		for n in N for r in range(repeat)
 	]
@@ -360,6 +363,53 @@ def accuracyComparison_parallel_repeat(
 
 
 
+def PPSVMG_test(n,nTest, event, quantity_of_interest, gradientFunction, critical_values, domains, sample_method = 'POF'):
+	print('generate test...')
+	testSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
+	testSIP.generate_Uniform(nTest, Gradient=False)
+	X_test = testSIP.df.iloc[:, :-2].values
+	y_test = testSIP.df['Label'].values
+	dataSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
+	print('generate train...')
+	if sample_method == 'POF':
+		dataSIP.generate_POF(n=n, CONST_a=2, iniPoints=5, sampleCriteria='k-dDarts')
+	else:
+		print('uniform')
+		dataSIP.generate_Uniform(n)
+	print('end')
+	Label = dataSIP.df['Label'].values
+	dfTrain = dataSIP.df.iloc[:, :-2].values
+	dQ = dataSIP.Gradient
+
+	X_train = dfTrain
+	y_train = Label
+
+	fit_para = {'dQ': dQ}
+	base = GMSVM_reduced(clusterSize = 3,ensembleNum=1,C = 1,  K = 100, reduced = False, similarity = 0.5)
+	model = ClassifierChainWrapper(base)
+	best_model = model
+	best_model.fit(X_train, y_train, dQ)
+	predictionAccuracy = np.sum(best_model.predict(X_test) == y_test) / len(y_test)
+	y_pred = best_model.predict(X_test)
+	# Scatter plot for predicted labels
+
+	plt.figure(figsize=(12, 5))
+
+	plt.subplot(1, 2, 1)
+	plt.scatter(X_test[:, 0], X_test[:, 1], c=y_pred, cmap='viridis', edgecolor='k', s=40)
+	plt.title("Predicted Labels")
+	plt.xlabel("x1")
+	plt.ylabel("x2")
+
+	# Scatter plot for true labels
+	plt.subplot(1, 2, 2)
+	plt.scatter(X_test[:, 0], X_test[:, 1], c=y_test, cmap='viridis', edgecolor='k', s=40)
+	plt.title("True Labels")
+	plt.xlabel("x1")
+	plt.ylabel("x2")
+
+	plt.tight_layout()
+	plt.show()
 
 ##### ------------------------ ################
 def main():
@@ -373,10 +423,10 @@ def main():
 	#example, model, numintervals, sample_method  = ['function2_PPSVMG', 'function2_NN', Brusselator, Elliptic, Function1, Function2], sample method 
 	example, model, numIntervals, sample_method  = sys.argv[1:5]
 	numIntervals = int(numIntervals)
-	n = 5000
+	n = 200
 	N = [100,120,140,160,180, 200,250,300,400,600,800,1000, 1400,1600,2000]
 	nTest = 5000
-	repeat = 20
+	repeat = 30
 
 	out_suffix = f'{example}_{model}'
 	db_preffix = f'{example}_{model}_{numIntervals}_{sample_method}'
@@ -432,13 +482,13 @@ def main():
 
 
 	if model == 'PPSVMG':	
-		base = GMSVM_reduced(clusterSize = 6,ensembleNum=1,C = 0.1,  K = 1, reduced = False, similarity = 0.5)
-		model = OneVsRestWrapper(base)
+		base = GMSVM_reduced(clusterSize = 6,ensembleNum=1,C = 1,  K = 100, reduced = False, similarity = 0.5)
+		model = ClassifierChainWrapper(base)
 		param_grid= {  
-		'clusterSize': [6, 8],    
+		'clusterSize': [1,3,6],    
 		'ensembleNum': [1], 
-		'C':[0.1,1],     
-		'K':[0.1,1,10]
+		'C':[1],     
+		'K':[100]
 		  }
 		grid_search = False
 		max_workers =cpu_count()
@@ -454,7 +504,6 @@ def main():
 		}
 		grid_search = True
 		max_workers = 5
-
 
 	#event_estimation(quantity_of_interest,gradientFunction,event, n, domains, critical_values, kde_cdf,repeat = 10)
 
@@ -477,15 +526,15 @@ def main():
 	db_path=f'../Results/{db_preffix}.sqlite'
 	)
 
-	#accuracyComparisonNaive('function2_PPSVMG',function2, Gradient_f2, event, N, domains, critical_values,kde_cdf, repeat  = 20)
+	#accuracyComparisonNaive(example, quantity_of_interest, gradientFunction, event, N, domains, critical_values,kde_cdf, repeat  = 30)
+
+	# print('---')
+	# PPSVMG_test(1000,5000, event, quantity_of_interest, gradientFunction, critical_values, domains, sample_method= 'Random')
 
 
 
 
 
 
-
-
-	#kde_estimation(domains)
 if __name__ == '__main__':
   main()

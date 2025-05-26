@@ -14,6 +14,9 @@ from sklearn import svm
 from PSVM import MagKmeans
 from SVM_Penalized import SVM_Penalized
 from sklearn.base import BaseEstimator, ClassifierMixin,clone
+from sklearn.multioutput import ClassifierChain
+import sklearn
+sklearn.set_config(enable_metadata_routing=True)
 
 class LabelEncode(object):
 	def __init__(self, L):
@@ -47,31 +50,31 @@ class clusters(object):
 		self.clusterNum = 0
 
 def find_k_nearest_points(k, point, points):
-    """
-    Find the k nearest points to a given point within a set of points.
+		"""
+		Find the k nearest points to a given point within a set of points.
 
-    Args:
-    k (int): The number of nearest points to return.
-    point (ndarray): The reference point (1D array).
-    points (ndarray): A 2D array of points to search within.
+		Args:
+		k (int): The number of nearest points to return.
+		point (ndarray): The reference point (1D array).
+		points (ndarray): A 2D array of points to search within.
 
-    Returns:
-    ndarray: The k nearest points to the given point.
-    """
-    # Compute the Euclidean distances from the given point to all other points
-    dists = np.array([np.linalg.norm(point - p) for p in points])
+		Returns:
+		ndarray: The k nearest points to the given point.
+		"""
+		# Compute the Euclidean distances from the given point to all other points
+		dists = np.array([np.linalg.norm(point - p) for p in points])
 
-    try:
-      index_self = np.where(np.all(points == point, axis=1))[0]
-      # Set the distance of the point itself to a very high value
-      dists[index_self] = 0
-    except IndexError:
-      pass  # The point is not in the list or cannot be exactly matched
+		try:
+			index_self = np.where(np.all(points == point, axis=1))[0]
+			# Set the distance of the point itself to a very high value
+			dists[index_self] = 0
+		except IndexError:
+			pass  # The point is not in the list or cannot be exactly matched
 
-    # Get the indices of the k smallest distances
-    nearest_indices = np.argsort(dists)[:k]
+		# Get the indices of the k smallest distances
+		nearest_indices = np.argsort(dists)[:k]
 
-    return nearest_indices
+		return nearest_indices
 
 
 # ---------------------------------- Improved Gabriel editing algorithm ---------------------------------- 
@@ -730,37 +733,122 @@ class PSVM(object):
 
 
 
+class ClassifierChainWrapper(BaseEstimator, ClassifierMixin):
+		def __init__(self, base_estimator):
+			self.base_estimator = base_estimator
+			self.classifiers = {}
+
+
+		def fit(self, X, y, dQ):
+
+			self.classes_ = np.unique(y)
+			
+			self.classifiers = {}
+			for i, cls in enumerate(self.classes_[0:-1]):
+					y_binary = np.array([int(y[j] in self.classes_[0:i + 1]) for j in range(len(y))])
+					clf = clone(self.base_estimator)
+					clf.fit(X, y_binary,dQ)
+					# ### --- prediction accuracy---- 
+					# print(np.sum(clf.predict(X) == y_binary)/len(y))
+					# import matplotlib.pyplot as plt
+					# plt.subplot(1, 3, 1)
+					# plt.scatter(X[:, 0], X[:, 1], c=clf.predict(X) + 5, cmap='viridis', edgecolor='k', s=40)
+					# plt.title("Predicted Labels")
+					# plt.xlabel("x1")
+					# plt.ylabel("x2")
+
+					# plt.subplot(1, 3, 2)
+					# plt.scatter(X[:, 0], X[:, 1], c=y_binary + 5, cmap='viridis', edgecolor='k', s=40)
+					# plt.title("Predicted Labels")
+					# plt.xlabel("x1")
+					# plt.ylabel("x2")
+
+					# plt.subplot(1, 3, 3)
+					# plt.scatter(X[:, 0], X[:, 1], c=(clf.decision_function(X)> 1).astype(int) + 5, cmap='viridis', edgecolor='k', s=40)
+					# plt.title(f"with threshold {0.5}")
+					# plt.xlabel("x1")
+					# plt.ylabel("x2")
+					# plt.show()
+					self.classifiers[cls] = clf
+			return self
+
+		def predict(self, X):
+			scores = []
+			for cls in self.classes_[0:-1]:
+					clf = self.classifiers[cls]
+					if not hasattr(clf, "decision_function"):
+							raise AttributeError(f"Base estimator must support `decision_function`, but {type(clf)} does not.")
+					score = clf.decision_function(X)
+					scores.append(score)
+
+			score_matrix = np.vstack(scores).T  # shape: (n_samples, n_classes-1)
+
+			# Create a boolean mask where scores > 0
+			positive_mask = score_matrix > 0
+
+			# Find first occurrence of True (score > 0) along axis=1
+			has_positive = positive_mask.any(axis=1)
+
+			# First positive index or default to last class if no positives
+			first_positive_idx = np.where(
+					has_positive,
+					positive_mask.argmax(axis=1),
+					len(self.classes_) - 1  # default index
+			)
+
+			predictions = self.classes_[first_positive_idx]
+
+			return predictions
+
 class OneVsRestWrapper(BaseEstimator, ClassifierMixin):
-    def __init__(self, base_estimator):
-        self.base_estimator = base_estimator
-        self.classifiers = {}
+		def __init__(self, base_estimator):
+			self.base_estimator = base_estimator
+			self.classifiers = {}
 
 
-    def fit(self, X, y, dQ):
-        self.classes_ = np.unique(y)
-        
-        self.classifiers = {}
-        for cls in self.classes_:
-            y_binary = (y == cls).astype(int)
-            clf = clone(self.base_estimator)
-            clf.fit(X, y_binary,dQ)
-            self.classifiers[cls] = clf
-        return self
+		def fit(self, X, y, dQ):
 
-    def predict(self, X):
-        scores = []
-        for cls in self.classes_:
-            clf = self.classifiers[cls]
-            if not hasattr(clf, "decision_function"):
-                raise AttributeError(f"Base estimator must support `decision_function`, but {type(clf)} does not.")
-            score = clf.decision_function(X)
-            scores.append(score)
+			self.classes_ = np.unique(y)
+			
+			self.classifiers = {}
+			for i, cls in enumerate(self.classes_):
+					y_binary = (y == cls).astype(int)
+					clf = clone(self.base_estimator)
+					clf.fit(X, y_binary,dQ)
+					### --- prediction accuracy---- 
+					# print(np.sum(clf.predict(X) == y_binary)/len(y))
+					# import matplotlib.pyplot as plt
+					# plt.subplot(1, 3, 1)
+					# plt.scatter(X[:, 0], X[:, 1], c=clf.predict(X) + 5, cmap='viridis', edgecolor='k', s=40)
+					# plt.title("Predicted Labels")
+					# plt.xlabel("x1")
+					# plt.ylabel("x2")
 
-        score_matrix = np.vstack(scores).T  # shape: (n_samples, n_classes)
-        best_indices = np.argmax(score_matrix, axis=1)
-        return self.classes_[best_indices]
+					# plt.subplot(1, 3, 2)
+					# plt.scatter(X[:, 0], X[:, 1], c=y_binary + 5, cmap='viridis', edgecolor='k', s=40)
+					# plt.title("Predicted Labels")
+					# plt.xlabel("x1")
+					# plt.ylabel("x2")
 
+					# plt.subplot(1, 3, 3)
+					# plt.scatter(X[:, 0], X[:, 1], c=(clf.decision_function(X)> 1).astype(int) + 5, cmap='viridis', edgecolor='k', s=40)
+					# plt.title(f"with threshold {0.5}")
+					# plt.xlabel("x1")
+					# plt.ylabel("x2")
+					# plt.show()
 
+					self.classifiers[cls] = clf
+			return self
 
+		def predict(self, X):
+			scores = []
+			for cls in self.classes_:
+					clf = self.classifiers[cls]
+					if not hasattr(clf, "decision_function"):
+							raise AttributeError(f"Base estimator must support `decision_function`, but {type(clf)} does not.")
+					score = clf.decision_function(X)
+					scores.append(score)
 
-
+			score_matrix = np.vstack(scores).T
+			best_indices = np.argmax(score_matrix, axis=1)
+			return self.classes_[best_indices]
