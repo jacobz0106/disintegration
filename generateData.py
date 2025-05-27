@@ -20,23 +20,26 @@ from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
 from multiprocessing import cpu_count
 
-def single_generate_POF(i, n, numIntervals, out_range,repeat, domains, function_y, function_gradient, SIP_Data_Multi,outSuffix):
+def single_generate_POF(i, n, numIntervals, out_range,repeat, domains, quantity_of_interest, gradientFunction, SIP_Data_Multi,outSuffix, method):
 	critical_values = np.linspace(out_range[0], out_range[1], numIntervals + 1)[1:-1]
-	filenamedf = f'data/{outSuffix}/df_Train_size{n}_interval_{len(critical_values)+1}_repeat{i}.csv'
-	filenamedQ = f'data/{outSuffix}/dQ_Train_size{n}_interval_{len(critical_values)+1}_repeat{i}.csv'
+	filenamedf = f'../data/{outSuffix}/df_Train_size{n}_interval_{len(critical_values)+1}_repeat{i}_{method}.csv'
+	filenamedQ = f'../data/{outSuffix}/dQ_Train_size{n}_interval_{len(critical_values)+1}_repeat{i}_{method}.csv'
 	if os.path.exists(filenamedQ):
 		return (i, n, 'exists')
 
-	dataSIP = SIP_Data_Multi(function_y, function_gradient, critical_values, len(domains), *domains)
-	dataSIP.generate_POF(n=n, CONST_a=2, iniPoints=5, sampleCriteria='k-dDarts')
+	dataSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
+	if method == 'POF':
+		dataSIP.generate_POF(n=n, CONST_a=2, iniPoints=5, sampleCriteria='k-dDarts')
+	else:
+		dataSIP.generate_Uniform(n)
 	df = dataSIP.df
 	dQ = dataSIP.Gradient
 
 	df.to_csv(filenamedf, header=True)
-	np.savetxt(filenamedQ, dQ, delimiter=",")
+	np.savetxt(filenamedQ, np.vstack(dQ).astype(float), delimiter=",")
 	return (i, n, 'generated')
 
-def generate_POF_parallel(function_y, function_gradient,N, numIntervals,out_range, domains,outSuffix,repeat=10, max_workers=None):
+def generate_POF_parallel(quantity_of_interest, gradientFunction,N, numIntervals,out_range, domains,outSuffix,repeat=10, max_workers=None, method = 'POF'):
 
 
 	with ProcessPoolExecutor(max_workers=max_workers) as executor:
@@ -45,7 +48,7 @@ def generate_POF_parallel(function_y, function_gradient,N, numIntervals,out_rang
 			for n in N:
 				futures.append(executor.submit(
 					single_generate_POF, i, n, numIntervals, out_range,repeat, domains,
-					function_y, function_gradient, SIP_Data_Multi,outSuffix
+					quantity_of_interest, gradientFunction, SIP_Data_Multi,outSuffix, method
 				))
 
 		for future in tqdm(futures, desc="Generating POF data"):
@@ -54,99 +57,67 @@ def generate_POF_parallel(function_y, function_gradient,N, numIntervals,out_rang
 
 
 
-
-
-# def generate_POF(N,numIntervals,repeat = 10):
-# 	domains = [[0.7,1.5],[2.75,3.25],[0,2]]
-# 	critical_values = np.linspace(2, 4.5, numIntervals + 1)[1:-1]
-# 	for i in range(repeat):
-# 		for n in N:
-# 			print([i,n] )
-# 			filenamedf = f'data/Brusselator/df_Train_size{n}_Brusselator_interval_{len(critical_values)}_repeat{repeat+i}.csv'
-# 			filenamedQ = f'data/Brusselator/dQ_Train_size{n}_Brusselator_interval_{len(critical_values)}_repeat{repeat+i}.csv'
-# 			if os.path.exists(filenamedQ):
-# 				print('exists')
-
-# 				continue
-# 			else:
-# 				print('generating')
-# 				dataSIP = SIP_Data_Multi(integral_3D, DQ_Dlambda_3D, critical_values, len(domains) , *domains)
-# 				dataSIP.generate_POF(n = n, CONST_a = 1 ,iniPoints = 5, sampleCriteria = 'k-dDarts')
-# 				df = dataSIP.df
-# 				dQ = dataSIP.Gradient
-# 				df.to_csv(filenamedf, header = True)
-# 				np.savetxt(filenamedQ, dQ, delimiter=",")
-			
-
-
-
-# def generate_POF_lotka(N,numIntervals,repeat = 10):
-# 	domains = [
-# 		[0.1, 2],
-# 		[0.1, 2],
-# 		[0.1, 2],
-# 		[0.25, 0.75],
-# 		[0.25, 0.75],
-# 		[0.25, 0.75],
-# 		[0.25, 0.75],
-# 		[0.25, 0.75],
-# 		[0.25, 0.75]
-# 	]
-# 	critical_values = np.linspace(0, 2, numIntervals + 1)[1:-1]
-# 	for i in range(repeat):
-# 		for n in N:
-# 			print([i,n] )
-# 			# Specify the file path
-# 			filenamedf = f'data/lotka/df_Train_size{n}_interval_{len(critical_values)+1}_repeat{repeat+i}_POF.csv'
-# 			filenamedQ = f'data/lotka/dQ_Train_size{n}_interval_{len(critical_values)+1}_repeat{repeat+i}_POF.csv'
-# 			# Check if the file exists
-# 			if os.path.exists(filenamedQ):
-# 				print('exists')
-# 				continue
-# 			else:
-# 				print('generating')
-# 				lotka = lotkaVolterra()
-# 				dataSIP = SIP_Data_Multi(lotka.quantity_interest, lotka.Gradients, critical_values, len(domains) , *domains)
-# 				dataSIP.generate_POF(n = n, CONST_a = 2 ,iniPoints = 5, sampleCriteria = 'k-dDarts')
-# 				df = dataSIP.df
-# 				dQ = dataSIP.Gradient
-				
-# 				df.to_csv(filenamedf, header = True)
-# 				np.savetxt(filenamedQ, dQ, delimiter=",")
-
-
-
-
-
 ##### ------------------------ ################
 def main():
 
-	numIntervals = 5
+	if len(sys.argv) != 4:
+		raise ValueError('not enough argument')
 
+	#example, numintervals, sample_method  = ['function2_PPSVMG', 'function2_NN', Brusselator, Elliptic, Function1, Function2], sample method 
+	example, numIntervals, sample_method  = sys.argv[1:5]
+	numIntervals = int(numIntervals)
 	N = [100,120,140,160,180, 200,250,300,400,600,800,1000, 1400,1600,2000]
+	repeat = 30
+	n = 5000
+	if example == 'function2':
+		# function2 ---------------
+		domains = [[-1,1], [-1,1] ]
+		event = [[0,0.8],[-0.7,0.5]] 
+		quantity_of_interest=function2
+		gradientFunction=Gradient_f2
+
+	elif example == "brusselator":
+		domains = [[0.7,1.5],[2.75,3.25],[0,2]]
+		event = [[1,1.2],[2.75,3.0],[0.2,1.9]]
+		quantity_of_interest=integral_3D
+		gradientFunction=DQ_Dlambda_3D
+	elif example == "lotka":
+		domains = [
+		[0.1, 2],
+		[0.1, 2],
+		[0.1, 2],
+		[0.25, 0.75],
+		[0.25, 0.75],
+		[0.25, 0.75],
+		[0.25, 0.75],
+		[0.25, 0.75],
+		[0.25, 0.75]
+		]
+		event = [
+		[0.2, 1.8],
+		[0.4, 1.9],
+		[1.2, 1.7],
+		[0.3, 0.7],
+		[0.3, 0.65],
+		[0.35, 0.65],
+		[0.25, 0.65],
+		[0.35, 0.65],
+		[0.3, 0.65]
+		]
+		lotka = lotkaVolterra()
+		quantity_of_interest=lotka.quantity_interest
+		gradientFunction=lotka.Gradients
+	else:
+		raise ValueError('Not implemented.')
+
+	dataSIP = SIP_Data(quantity_of_interest, gradientFunction, 1, len(domains) , *domains)
+	dataSIP.generate_Uniform(n, Gradient = False)
+	out_range = [min(np.array(dataSIP.df['f']).reshape(-1)),max(np.array(dataSIP.df['f']).reshape(-1))]
+	critical_values = np.linspace(out_range[0], out_range[1], numIntervals + 1)[1:-1]
 
 	# ------------------------------------------------------------------------------#
-	out_range = [2, 4.5]
-	domains = [[0.7,1.5],[2.75,3.25],[0,2]]
-	print(cpu_count())
-	generate_POF_parallel(integral_3D, DQ_Dlambda_3D,N, numIntervals,out_range, domains,outSuffix = "Brusselator",repeat=20, max_workers= cpu_count() // 4)
-
-	# domains = [
-	# 	[0.1, 2],
-	# 	[0.1, 2],
-	# 	[0.1, 2],
-	# 	[0.25, 0.75],
-	# 	[0.25, 0.75],
-	# 	[0.25, 0.75],
-	# 	[0.25, 0.75],
-	# 	[0.25, 0.75],
-	# 	[0.25, 0.75]
-	# ]
-	# out_range = [0,2]
-	# generate_POF_parallel(integral_3D, DQ_Dlambda_3D,N, numIntervals,out_range, domains,outSuffix = "lotka",repeat=20, max_workers= max_workers=cpu_count() // 2)
-
-
-	#kde_estimation(domains)
+	print('---')
+	generate_POF_parallel(quantity_of_interest, gradientFunction,N, numIntervals,out_range, domains,outSuffix = example,repeat = repeat, max_workers= cpu_count(), method = sample_method)
 
 
 
