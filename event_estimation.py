@@ -10,6 +10,7 @@ from sklearn.neighbors import KernelDensity
 from scipy.integrate import cumtrapz
 from scipy.interpolate import interp1d
 import sys
+import os
 import math
 import pandas as pd
 from CBP import *
@@ -263,17 +264,30 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 		return None  # Skip
 
 	dataSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
-	if sample_method == 'POF':
-		dataSIP.generate_POF(n=n, CONST_a=2, iniPoints=5, sampleCriteria='k-dDarts')
-	else:
-		if isinstance(model, MLPClassifier):
-			dataSIP.generate_Uniform(n, Gradient = False)
-		else:
-			dataSIP.generate_Uniform(n)
+	# out_suffix = f'{example}_{model}'
+	parts = key.split("_")
+	file_df = f'../data/{parts[0]}/df_Train_size{n}_interval_{len(critical_values) + 1}_repeat{r}_{sample_method}.csv'
+	file_dQ = f'../data/{parts[0]}/dQ_Train_size{n}_interval_{len(critical_values) + 1}_repeat{r}_{sample_method}.csv'
 
-	Label = dataSIP.df['Label'].values
-	dfTrain = dataSIP.df.iloc[:, :-2].values
-	dQ = dataSIP.Gradient
+	if os.path.exists(file_df) and os.path.exists(file_dQ):
+		df = pd.read_csv(file_df,index_col=0)
+		df = df.reset_index(drop=True)
+		dQ = pd.read_csv(file_dQ,index_col=0, header = None)
+		dQ = dQ.reset_index(drop=True).values.tolist()
+		Label = df['Label'].values
+		dfTrain = df.iloc[:, :-2].values
+	else:
+		if sample_method == 'POF':
+			dataSIP.generate_POF(n=n, CONST_a=2, iniPoints=5, sampleCriteria='k-dDarts')
+		else:
+			if isinstance(model, MLPClassifier):
+				dataSIP.generate_Uniform(n, Gradient = False)
+			else:
+				dataSIP.generate_Uniform(n)
+
+		Label = dataSIP.df['Label'].values
+		dfTrain = dataSIP.df.iloc[:, :-2].values
+		dQ = dataSIP.Gradient
 
 	X_train = dfTrain
 	y_train = Label
