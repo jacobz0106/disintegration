@@ -281,7 +281,7 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 	if isinstance(model, ClassifierChainWrapper):
 		fit_para = {'dQ': dQ}
 		if grid_search:
-			grid_search_obj = GridSearchCV(model, param_grid, cv=5, scoring='accuracy', verbose=0)
+			grid_search_obj = GridSearchCV(model, param_grid, cv=3, scoring='accuracy', verbose=0)
 			grid_search_obj.fit(X_train, y_train, **fit_para)
 			best_model = grid_search_obj.best_estimator_
 		else:
@@ -347,7 +347,7 @@ def accuracyComparison_parallel_repeat(
 			# Step 5: Periodically flush results to SQLite
 			if time.time() - last_write_time >= 600 and results_to_write:  # 10 minutes
 				with lock:
-					with SqliteDict(db_path, autocommit=True) as db:
+					with SqliteDict(db_path, autocommit=True, timeout=60) as db:
 						db.update(results_to_write)
 				results_to_write = {}
 				last_write_time = time.time()
@@ -386,7 +386,7 @@ def PPSVMG_test(n,nTest, event, quantity_of_interest, gradientFunction, critical
 
 	fit_para = {'dQ': dQ}
 	base = GMSVM_reduced(clusterSize = 3,ensembleNum=1,C = 1,  K = 100, reduced = False, similarity = 0.5)
-	model = ClassifierChainWrapper(base)
+	model = OneVsRestWrapper(base)
 	best_model = model
 	best_model.fit(X_train, y_train, dQ)
 	predictionAccuracy = np.sum(best_model.predict(X_test) == y_test) / len(y_test)
@@ -490,7 +490,7 @@ def main():
 		'C':[1],     
 		'K':[100]
 		  }
-		grid_search = False
+		grid_search = True
 		max_workers =cpu_count()
 	else:
 		model = MLPClassifier(early_stopping=True, validation_fraction=0.1)
@@ -529,7 +529,7 @@ def main():
 	#accuracyComparisonNaive(example, quantity_of_interest, gradientFunction, event, N, domains, critical_values,kde_cdf, repeat  = 30)
 
 	# print('---')
-	# PPSVMG_test(1000,5000, event, quantity_of_interest, gradientFunction, critical_values, domains, sample_method= 'Random')
+	# PPSVMG_test(1000,2000, event, quantity_of_interest, gradientFunction, critical_values, domains, sample_method= 'Random')
 
 
 
