@@ -749,26 +749,26 @@ class ClassifierChainWrapper(BaseEstimator, ClassifierMixin):
 					clf = clone(self.base_estimator)
 					clf.fit(X, y_binary,dQ)
 					### --- prediction accuracy---- 
-					print(np.sum(clf.predict(X) == y_binary)/len(y))
-					import matplotlib.pyplot as plt
-					plt.subplot(1, 3, 1)
-					plt.scatter(X[:, 0], X[:, 1], c=clf.predict(X) + 5, cmap='viridis', edgecolor='k', s=40)
-					plt.title("Predicted Labels")
-					plt.xlabel("x1")
-					plt.ylabel("x2")
+					# print(np.sum(clf.predict(X) == y_binary)/len(y))
+					# import matplotlib.pyplot as plt
+					# plt.subplot(1, 3, 1)
+					# plt.scatter(X[:, 0], X[:, 1], c=clf.predict(X) + 5, cmap='viridis', edgecolor='k', s=40)
+					# plt.title("Predicted Labels")
+					# plt.xlabel("x1")
+					# plt.ylabel("x2")
 
-					plt.subplot(1, 3, 2)
-					plt.scatter(X[:, 0], X[:, 1], c=y_binary + 5, cmap='viridis', edgecolor='k', s=40)
-					plt.title("Predicted Labels")
-					plt.xlabel("x1")
-					plt.ylabel("x2")
+					# plt.subplot(1, 3, 2)
+					# plt.scatter(X[:, 0], X[:, 1], c=y_binary + 5, cmap='viridis', edgecolor='k', s=40)
+					# plt.title("Predicted Labels")
+					# plt.xlabel("x1")
+					# plt.ylabel("x2")
 
-					plt.subplot(1, 3, 3)
-					plt.scatter(X[:, 0], X[:, 1], c=(clf.decision_function(X)> 1).astype(int) + 5, cmap='viridis', edgecolor='k', s=40)
-					plt.title(f"with threshold {0.5}")
-					plt.xlabel("x1")
-					plt.ylabel("x2")
-					plt.show()
+					# plt.subplot(1, 3, 3)
+					# plt.scatter(X[:, 0], X[:, 1], c=(clf.decision_function(X)> 1).astype(int) + 5, cmap='viridis', edgecolor='k', s=40)
+					# plt.title(f"with threshold {0.5}")
+					# plt.xlabel("x1")
+					# plt.ylabel("x2")
+					# plt.show()
 					self.classifiers[cls] = clf
 			return self
 
@@ -828,26 +828,26 @@ class OneVsRestWrapper(BaseEstimator, ClassifierMixin):
 					clf = clone(self.base_estimator)
 					clf.fit(X, y_binary,dQ)
 					## --- prediction accuracy---- 
-					print(np.sum(clf.predict(X) == y_binary)/len(y))
-					import matplotlib.pyplot as plt
-					plt.subplot(1, 3, 1)
-					plt.scatter(X[:, 0], X[:, 1], c=clf.predict(X) + 5, cmap='viridis', edgecolor='k', s=40)
-					plt.title("Predicted Labels")
-					plt.xlabel("x1")
-					plt.ylabel("x2")
+					# print(np.sum(clf.predict(X) == y_binary)/len(y))
+					# import matplotlib.pyplot as plt
+					# plt.subplot(1, 3, 1)
+					# plt.scatter(X[:, 0], X[:, 1], c=clf.predict(X) + 5, cmap='viridis', edgecolor='k', s=40)
+					# plt.title("Predicted Labels")
+					# plt.xlabel("x1")
+					# plt.ylabel("x2")
 
-					plt.subplot(1, 3, 2)
-					plt.scatter(X[:, 0], X[:, 1], c=y_binary + 5, cmap='viridis', edgecolor='k', s=40)
-					plt.title("Predicted Labels")
-					plt.xlabel("x1")
-					plt.ylabel("x2")
+					# plt.subplot(1, 3, 2)
+					# plt.scatter(X[:, 0], X[:, 1], c=y_binary + 5, cmap='viridis', edgecolor='k', s=40)
+					# plt.title("Predicted Labels")
+					# plt.xlabel("x1")
+					# plt.ylabel("x2")
 
-					plt.subplot(1, 3, 3)
-					plt.scatter(X[:, 0], X[:, 1], c=(clf.decision_function(X)> 1).astype(int) + 5, cmap='viridis', edgecolor='k', s=40)
-					plt.title(f"with threshold {0.5}")
-					plt.xlabel("x1")
-					plt.ylabel("x2")
-					plt.show()
+					# plt.subplot(1, 3, 3)
+					# plt.scatter(X[:, 0], X[:, 1], c=(clf.decision_function(X)> 1).astype(int) + 5, cmap='viridis', edgecolor='k', s=40)
+					# plt.title(f"with threshold {0.5}")
+					# plt.xlabel("x1")
+					# plt.ylabel("x2")
+					# plt.show()
 
 					self.classifiers[cls] = clf
 			return self
