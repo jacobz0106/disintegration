@@ -397,7 +397,7 @@ class GMSVM(object):
 		# define the clusters 
 		self.Euc_d = np.array([Euclidean_distance_vector(mp, self.cbp.midpoints) for mp in self.cbp.midpoints])
 		for midpoint, i in zip(self.cbp.midpoints, range(len(self.cbp.midpoints) )):
-			nearest_index = np.argsort(self.Euc_d[:,i])[1:self.clusterSize +1 ]
+			nearest_index = np.argsort(self.Euc_d[:,i])[0:self.clusterSize +1 ]
 			GE_point_index = np.unique(np.array(self.cbp.points)[nearest_index].reshape(-1))
 			model = SVM_Penalized(C = self.C, K = self.K, reduced = self.reduced)
 			model.fit(self.A_train[GE_point_index], self.C_train[GE_point_index], np.array(dQ)[GE_point_index])
@@ -734,8 +734,8 @@ class PSVM(object):
 
 
 class ClassifierChainWrapper(BaseEstimator, ClassifierMixin):
-		def __init__(self, base_estimator):
-			self.base_estimator = base_estimator
+		def __init__(self, **parameters):
+			self.base_estimator = GMSVM_reduced(**parameters)
 			self.classifiers = {}
 
 
@@ -748,27 +748,27 @@ class ClassifierChainWrapper(BaseEstimator, ClassifierMixin):
 					y_binary = np.array([int(y[j] in self.classes_[0:i + 1]) for j in range(len(y))])
 					clf = clone(self.base_estimator)
 					clf.fit(X, y_binary,dQ)
-					# ### --- prediction accuracy---- 
-					# print(np.sum(clf.predict(X) == y_binary)/len(y))
-					# import matplotlib.pyplot as plt
-					# plt.subplot(1, 3, 1)
-					# plt.scatter(X[:, 0], X[:, 1], c=clf.predict(X) + 5, cmap='viridis', edgecolor='k', s=40)
-					# plt.title("Predicted Labels")
-					# plt.xlabel("x1")
-					# plt.ylabel("x2")
+					### --- prediction accuracy---- 
+					print(np.sum(clf.predict(X) == y_binary)/len(y))
+					import matplotlib.pyplot as plt
+					plt.subplot(1, 3, 1)
+					plt.scatter(X[:, 0], X[:, 1], c=clf.predict(X) + 5, cmap='viridis', edgecolor='k', s=40)
+					plt.title("Predicted Labels")
+					plt.xlabel("x1")
+					plt.ylabel("x2")
 
-					# plt.subplot(1, 3, 2)
-					# plt.scatter(X[:, 0], X[:, 1], c=y_binary + 5, cmap='viridis', edgecolor='k', s=40)
-					# plt.title("Predicted Labels")
-					# plt.xlabel("x1")
-					# plt.ylabel("x2")
+					plt.subplot(1, 3, 2)
+					plt.scatter(X[:, 0], X[:, 1], c=y_binary + 5, cmap='viridis', edgecolor='k', s=40)
+					plt.title("Predicted Labels")
+					plt.xlabel("x1")
+					plt.ylabel("x2")
 
-					# plt.subplot(1, 3, 3)
-					# plt.scatter(X[:, 0], X[:, 1], c=(clf.decision_function(X)> 1).astype(int) + 5, cmap='viridis', edgecolor='k', s=40)
-					# plt.title(f"with threshold {0.5}")
-					# plt.xlabel("x1")
-					# plt.ylabel("x2")
-					# plt.show()
+					plt.subplot(1, 3, 3)
+					plt.scatter(X[:, 0], X[:, 1], c=(clf.decision_function(X)> 1).astype(int) + 5, cmap='viridis', edgecolor='k', s=40)
+					plt.title(f"with threshold {0.5}")
+					plt.xlabel("x1")
+					plt.ylabel("x2")
+					plt.show()
 					self.classifiers[cls] = clf
 			return self
 
@@ -799,10 +799,22 @@ class ClassifierChainWrapper(BaseEstimator, ClassifierMixin):
 			predictions = self.classes_[first_positive_idx]
 
 			return predictions
+		def get_params(self,deep=True):
+			return {"clusterSize" : self.base_estimator.clusterSize,
+			"ensembleNum" : self.base_estimator.ensembleNum,
+			"C": self.base_estimator.C,
+			"K":self.base_estimator.K,
+			"similarity":self.base_estimator.similarity}
+
+		def set_params(self, **parameters):
+			# for parameter, value in parameters.items():
+			#     setattr(self, parameter, value)
+			self.__init__(**parameters)
+			return self
 
 class OneVsRestWrapper(BaseEstimator, ClassifierMixin):
-		def __init__(self, base_estimator):
-			self.base_estimator = base_estimator
+		def __init__(self, **parameters):
+			self.base_estimator = GMSVM_reduced(**parameters)
 			self.classifiers = {}
 
 
@@ -815,27 +827,27 @@ class OneVsRestWrapper(BaseEstimator, ClassifierMixin):
 					y_binary = (y == cls).astype(int)
 					clf = clone(self.base_estimator)
 					clf.fit(X, y_binary,dQ)
-					### --- prediction accuracy---- 
-					# print(np.sum(clf.predict(X) == y_binary)/len(y))
-					# import matplotlib.pyplot as plt
-					# plt.subplot(1, 3, 1)
-					# plt.scatter(X[:, 0], X[:, 1], c=clf.predict(X) + 5, cmap='viridis', edgecolor='k', s=40)
-					# plt.title("Predicted Labels")
-					# plt.xlabel("x1")
-					# plt.ylabel("x2")
+					## --- prediction accuracy---- 
+					print(np.sum(clf.predict(X) == y_binary)/len(y))
+					import matplotlib.pyplot as plt
+					plt.subplot(1, 3, 1)
+					plt.scatter(X[:, 0], X[:, 1], c=clf.predict(X) + 5, cmap='viridis', edgecolor='k', s=40)
+					plt.title("Predicted Labels")
+					plt.xlabel("x1")
+					plt.ylabel("x2")
 
-					# plt.subplot(1, 3, 2)
-					# plt.scatter(X[:, 0], X[:, 1], c=y_binary + 5, cmap='viridis', edgecolor='k', s=40)
-					# plt.title("Predicted Labels")
-					# plt.xlabel("x1")
-					# plt.ylabel("x2")
+					plt.subplot(1, 3, 2)
+					plt.scatter(X[:, 0], X[:, 1], c=y_binary + 5, cmap='viridis', edgecolor='k', s=40)
+					plt.title("Predicted Labels")
+					plt.xlabel("x1")
+					plt.ylabel("x2")
 
-					# plt.subplot(1, 3, 3)
-					# plt.scatter(X[:, 0], X[:, 1], c=(clf.decision_function(X)> 1).astype(int) + 5, cmap='viridis', edgecolor='k', s=40)
-					# plt.title(f"with threshold {0.5}")
-					# plt.xlabel("x1")
-					# plt.ylabel("x2")
-					# plt.show()
+					plt.subplot(1, 3, 3)
+					plt.scatter(X[:, 0], X[:, 1], c=(clf.decision_function(X)> 1).astype(int) + 5, cmap='viridis', edgecolor='k', s=40)
+					plt.title(f"with threshold {0.5}")
+					plt.xlabel("x1")
+					plt.ylabel("x2")
+					plt.show()
 
 					self.classifiers[cls] = clf
 			return self

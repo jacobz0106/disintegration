@@ -358,18 +358,18 @@ def accuracyComparison_parallel_repeat(
 				results.append((key, acc, est))
 				results_to_write[key] = {'accuracy': acc, 'estimation': est}
 
-			# Step 5: Periodically flush results to SQLite
-			if time.time() - last_write_time >= 600 and results_to_write:  # 10 minutes
-				with lock:
-					with SqliteDict(db_path, autocommit=True, timeout=60) as db:
-						db.update(results_to_write)
-				results_to_write = {}
-				last_write_time = time.time()
+	# 		# Step 5: Periodically flush results to SQLite
+	# 		if time.time() - last_write_time >= 600 and results_to_write:  # 10 minutes
+	# 			with lock:
+	# 				with SqliteDict(db_path, autocommit=True, timeout=60) as db:
+	# 					db.update(results_to_write)
+	# 			results_to_write = {}
+	# 			last_write_time = time.time()
 
-	# Step 6: Final flush
-	if results_to_write:
-		with SqliteDict(db_path, autocommit=True) as db:
-			db.update(results_to_write)
+	# # Step 6: Final flush
+	# if results_to_write:
+	# 	with SqliteDict(db_path, autocommit=True) as db:
+	# 		db.update(results_to_write)
 
 	return results
 	
@@ -496,8 +496,7 @@ def main():
 
 
 	if model == 'PPSVMG':	
-		base = GMSVM_reduced(clusterSize = 6,ensembleNum=1,C = 1,  K = 100, reduced = False, similarity = 0.5)
-		model = ClassifierChainWrapper(base)
+		model = ClassifierChainWrapper(clusterSize = 6,ensembleNum=1,C = 1,  K = 100, reduced = False, similarity = 0.5)
 		param_grid= {  
 		'clusterSize': [1,3,6],    
 		'ensembleNum': [1], 
