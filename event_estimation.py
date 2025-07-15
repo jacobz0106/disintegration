@@ -175,6 +175,7 @@ def kde_estimation(empiricalOutput):
 
 
 def equivalenceSpaceProbability(kde_cdf, critical_values, i):
+	print(i)
 	if i > len(critical_values):
 		raise ValueError('index out of bound.')
 	if i == 0:
@@ -253,10 +254,8 @@ def initializer(lock_):
 def run_single_task(arg):
 	return single_run_sqlite(*arg)
 
-def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, model, param_grid, event,
-					  domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
-					  ClassifierChainWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
-					  equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV, db_keys):
+def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, model_name, event,
+					  domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,db_keys):
 	key = f"{sample_method}_{out_suffix}_{n}_repeat_{r}_intervals_{len(critical_values) + 1}"
 
 	if key in db_keys:
@@ -280,10 +279,10 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 		if sample_method == 'POF':
 			dataSIP.generate_POF(n=n, CONST_a=2, iniPoints=5, sampleCriteria='k-dDarts')
 		else:
-			if isinstance(model, MLPClassifier):
-				dataSIP.generate_Uniform(n, Gradient = False)
-			else:
+			if model_name == 'PPSVMG':
 				dataSIP.generate_Uniform(n)
+			else:
+				dataSIP.generate_Uniform(n, Gradient = False)
 
 		Label = dataSIP.df['Label'].values
 		dfTrain = dataSIP.df.iloc[:, :-2].values
@@ -291,8 +290,17 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 
 	X_train = dfTrain
 	y_train = Label
+	# initiate model inside work instance - --------- modify this part -------------- -  
 
-	if isinstance(model, ClassifierChainWrapper):
+	if model_name == 'PPSVMG':	
+		model = ClassifierChainWrapper(clusterSize = 6,ensembleNum=1,C = 1,  K = 100, reduced = False, similarity = 0.5)
+		param_grid= {  
+		'clusterSize': [1,3,6],    
+		'ensembleNum': [1], 
+		'C':[1],     
+		'K':[100]
+		  }
+		grid_search = True
 		fit_para = {'dQ': dQ}
 		if grid_search:
 			grid_search_obj = GridSearchCV(model, param_grid, cv=3, scoring='accuracy', verbose=0)
@@ -301,8 +309,18 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 		else:
 			best_model = model
 			best_model.fit(X_train, y_train, dQ)
-	elif isinstance(model, MLPClassifier):
+	else:
+		model = MLPClassifier(early_stopping=True, validation_fraction=0.1)
+		## - MLPClassifier:
+		param_grid = {
+		  'hidden_layer_sizes': [(50, 50), (100, 100), (50, 100, 50)],  # Architecture of hidden layers
+		  'activation': ['logistic', 'tanh', 'relu'],  # Activation function
+		  'alpha': [0.0001, 0.001, 0.01],  # L2 regularization term
+		  'learning_rate_init': [0.001, 0.01, 0.1],  # Initial learning rate
+		  'max_iter': [3000, 5000, 10000],  # Maximum number of iterations
+		}
 		best_model = perform_grid_search_cv(model, param_grid, X_train, y_train,n_jobs=1)
+
 
 	predictionAccuracy = np.sum(best_model.predict(X_test) == y_test) / len(y_test)
 	Labels = best_model.predict(X_test)
@@ -318,9 +336,9 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 	return key, predictionAccuracy, event_probability
 
 def accuracyComparison_parallel_repeat(
-	quantity_of_interest, gradientFunction, model, param_grid, event,
+	quantity_of_interest, gradientFunction, model_name, event,
 	N, domains, critical_values, kde_cdf, out_suffix,
-	nTest=2000, repeat=20, sample_method='POF', grid_search=True, max_workers=4,
+	nTest=2000, repeat=20, sample_method='POF', grid_search=True,
 	db_path='Results/dic.sqlite'):
 
 	# Step 1: Load existing keys before parallel
@@ -335,10 +353,8 @@ def accuracyComparison_parallel_repeat(
 
 	# Step 3: Prepare args
 	args = [
-		(out_suffix, n, r, quantity_of_interest, gradientFunction, model, param_grid, event,
-		 domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,
-		 ClassifierChainWrapper, MLPClassifier, SIP_Data_Multi, check_points_in_nd_domain,
-		 equivalenceSpaceProbability, perform_grid_search_cv, GridSearchCV, db_keys)
+		(out_suffix, n, r, quantity_of_interest, gradientFunction, model_name, event,
+		 domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,db_keys)
 		for n in N for r in range(repeat)
 	]
 
@@ -350,6 +366,10 @@ def accuracyComparison_parallel_repeat(
 
 	# create a lock for file access
 	lock = Lock()
+	if model_name == 'PPSVMG':
+		max_workers =cpu_count()	
+	else:
+		max_workers = 5
 
 	with ctx.Pool(processes=max_workers) as pool:
 		for result in tqdm(pool.imap_unordered(run_single_task, args), total=len(args)):
@@ -482,7 +502,7 @@ def main():
 		]
 		lotka = lotkaVolterra()
 		quantity_of_interest=lotka.quantity_interest
-		gradientFunction=lotka.Gradients
+		gradientFunction=lotka.gradients
 	else:
 		raise ValueError('Not implemented.')
 
@@ -495,36 +515,13 @@ def main():
 	critical_values = np.linspace(out_range[0], out_range[1], numIntervals + 1)[1:-1]
 
 
-	if model == 'PPSVMG':	
-		model = ClassifierChainWrapper(clusterSize = 6,ensembleNum=1,C = 1,  K = 100, reduced = False, similarity = 0.5)
-		param_grid= {  
-		'clusterSize': [1,3,6],    
-		'ensembleNum': [1], 
-		'C':[1],     
-		'K':[100]
-		  }
-		grid_search = True
-		max_workers =cpu_count()
-	else:
-		model = MLPClassifier(early_stopping=True, validation_fraction=0.1)
-		## - MLPClassifier:
-		param_grid = {
-		  'hidden_layer_sizes': [(50, 50), (100, 100), (50, 100, 50)],  # Architecture of hidden layers
-		  'activation': ['logistic', 'tanh', 'relu'],  # Activation function
-		  'alpha': [0.0001, 0.001, 0.01],  # L2 regularization term
-		  'learning_rate_init': [0.001, 0.01, 0.1],  # Initial learning rate
-		  'max_iter': [3000, 5000, 10000],  # Maximum number of iterations
-		}
-		grid_search = True
-		max_workers = 5
 
 	#event_estimation(quantity_of_interest,gradientFunction,event, n, domains, critical_values, kde_cdf,repeat = 10)
 
 	accuracyComparison_parallel_repeat(
 	quantity_of_interest=quantity_of_interest,
 	gradientFunction=gradientFunction,
-	model=model,
-	param_grid=param_grid,
+	model_name=model,
 	event=event,
 	N=N,
 	domains=domains,
@@ -534,8 +531,7 @@ def main():
 	nTest=nTest,
 	repeat=repeat,
 	sample_method=sample_method,
-	grid_search=grid_search,
-	max_workers=max_workers,  # set number of parallel processes here,
+	grid_search=True,
 	db_path=f'../Results/{db_preffix}.sqlite'
 	)
 
