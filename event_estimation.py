@@ -367,7 +367,7 @@ def accuracyComparison_parallel_repeat(
 	# create a lock for file access
 	lock = Lock()
 	if model_name == 'PPSVMG':
-		max_workers =cpu_count()	
+		max_workers = int(cpu_count() / 2)	
 	else:
 		max_workers = 5
 

@@ -1,17 +1,14 @@
 import numpy as np
 import pandas as pd
-import numpy as np
-from scipy.optimize import fsolve
-from scipy.linalg import solve
 import matplotlib.pyplot as plt
 
 
 class lotkaVolterra(object):
 	def __init__(self,initial_conditions = [10,5,2],self_interacting_terms =[0.5,0.5,0.5],T= 10,n = 1000, method = 'Heun'):
-		'''
+		"""
 		r: [.1, 2]
-		alpha_ii: 1
-		'''
+		alpha_ii: self_interacting_terms
+		"""
 		self.method = method
 		self.df =[]
 		self.initial_conditions = initial_conditions
@@ -177,10 +174,10 @@ class lotkaVolterra(object):
 		off_diag_indices = [(0,1), (0,2), (1,0), (1,2), (2,0), (2,1)]
 		for idx, (i, j) in enumerate(off_diag_indices):
 			interaction_terms[i, j] = values[idx]
-
+		# Return z3(10)
 		return self.function_z(R,interaction_terms)[-1][-1]
 
-	def Gradients(self,paras):
+	def gradients(self,paras):
 		R = paras[:3]
 
 		# Inputs
