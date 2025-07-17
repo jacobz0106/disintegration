@@ -17,6 +17,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin,clone
 from sklearn.multioutput import ClassifierChain
 import sklearn
 sklearn.set_config(enable_metadata_routing=True)
+import gurobipy as gp
 
 class LabelEncode(object):
 	def __init__(self, L):
@@ -521,13 +522,18 @@ class GMSVM_reduced(object):
 		if self.similarity < 1.0:
 			self.reduce_clusters()
 
+		gp_env = gp.Env(empty=True) 
+		gp_env.setParam("OutputFlag",0)
+		gp_env.start()
+
 		for i in self.clusters.labels_:
 			nearest_index = self.midpointClusters[i]
 			GE_point_index = np.unique(np.array(self.cbp.points)[nearest_index].reshape(-1))
-			model = SVM_Penalized(C = self.C, K = self.K, reduced = self.reduced)
+			model = SVM_Penalized(C = self.C, K = self.K, gp_env = gp_env, reduced = self.reduced)
 			model.fit(self.A_train[GE_point_index], self.C_train[GE_point_index], np.array(dQ)[GE_point_index])
 			self.SVM.append(model)
 			self.clusterCentroids.append(np.mean(A_train[GE_point_index], axis = 0) )
+		gp_env.dispose()
 
 	def ensemble(self, x):
 		I = Euclidean_distance_vector(x,self.clusterCentroids)
@@ -733,8 +739,10 @@ class PSVM(object):
 
 
 
+
 class ClassifierChainWrapper(BaseEstimator, ClassifierMixin):
-		def __init__(self, **parameters):
+		def __init__(self, trace_plot = False, **parameters):
+			self.trace_plot = trace_plot
 			self.base_estimator = GMSVM_reduced(**parameters)
 			self.classifiers = {}
 
@@ -748,27 +756,36 @@ class ClassifierChainWrapper(BaseEstimator, ClassifierMixin):
 					y_binary = np.array([int(y[j] in self.classes_[0:i + 1]) for j in range(len(y))])
 					clf = clone(self.base_estimator)
 					clf.fit(X, y_binary,dQ)
-					### --- prediction accuracy---- 
-					# print(np.sum(clf.predict(X) == y_binary)/len(y))
-					# import matplotlib.pyplot as plt
-					# plt.subplot(1, 3, 1)
-					# plt.scatter(X[:, 0], X[:, 1], c=clf.predict(X) + 5, cmap='viridis', edgecolor='k', s=40)
-					# plt.title("Predicted Labels")
-					# plt.xlabel("x1")
-					# plt.ylabel("x2")
+					if self.trace_plot == True:
+						markers = ['+', 'D']
+						colors = ['black', 'dimgray']
 
-					# plt.subplot(1, 3, 2)
-					# plt.scatter(X[:, 0], X[:, 1], c=y_binary + 5, cmap='viridis', edgecolor='k', s=40)
-					# plt.title("Predicted Labels")
-					# plt.xlabel("x1")
-					# plt.ylabel("x2")
+						## --- prediction accuracy---- 
+						print(np.sum(clf.predict(X) == y_binary)/len(y))
+						import matplotlib.pyplot as plt
+						plt.figure(figsize=(10, 10))
+						plt.subplot()
+						y_pred = clf.predict(X)
+						plt.scatter(X[y_pred == 1, 0], X[y_pred == 1, 1],c=colors[0], marker=markers[0],label=f'Class 0 to {i}')
 
-					# plt.subplot(1, 3, 3)
-					# plt.scatter(X[:, 0], X[:, 1], c=(clf.decision_function(X)> 1).astype(int) + 5, cmap='viridis', edgecolor='k', s=40)
-					# plt.title(f"with threshold {0.5}")
-					# plt.xlabel("x1")
-					# plt.ylabel("x2")
-					# plt.show()
+						plt.scatter(X[y_pred == 0, 0], X[y_pred == 0, 1],c=colors[1], marker=markers[1],label=f'other')
+						plt.xlabel("x1")
+						plt.ylabel("x2")
+						plt.legend(loc='top left')
+						filename = f'Plots/classifier_chain_plots/classifierChain_class{i}_predict.pdf'
+						plt.savefig(filename, bbox_inches='tight', format = 'pdf')
+						plt.clf()
+
+						plt.subplot()
+						plt.scatter(X[y_binary == 1, 0], X[y_binary == 1, 1],c=colors[0], marker=markers[0],label=f'Class 0 to {i}')
+
+						plt.scatter(X[y_binary == 0, 0], X[y_binary == 0, 1],c=colors[1], marker=markers[1],label=f'other')
+						plt.xlabel("x1")
+						plt.ylabel("x2")
+						plt.legend(loc='top left')
+						filename = f'Plots/classifier_chain_plots/classifierChain_class{i}_actual.pdf'
+						plt.savefig(filename, bbox_inches='tight', format = 'pdf')
+						plt.clf()
 					self.classifiers[cls] = clf
 			return self
 
@@ -813,7 +830,8 @@ class ClassifierChainWrapper(BaseEstimator, ClassifierMixin):
 			return self
 
 class OneVsRestWrapper(BaseEstimator, ClassifierMixin):
-		def __init__(self, **parameters):
+		def __init__(self, trace_plot = False,**parameters):
+			self.trace_plot = trace_plot
 			self.base_estimator = GMSVM_reduced(**parameters)
 			self.classifiers = {}
 
@@ -827,27 +845,36 @@ class OneVsRestWrapper(BaseEstimator, ClassifierMixin):
 					y_binary = (y == cls).astype(int)
 					clf = clone(self.base_estimator)
 					clf.fit(X, y_binary,dQ)
-					## --- prediction accuracy---- 
-					# print(np.sum(clf.predict(X) == y_binary)/len(y))
-					# import matplotlib.pyplot as plt
-					# plt.subplot(1, 3, 1)
-					# plt.scatter(X[:, 0], X[:, 1], c=clf.predict(X) + 5, cmap='viridis', edgecolor='k', s=40)
-					# plt.title("Predicted Labels")
-					# plt.xlabel("x1")
-					# plt.ylabel("x2")
+					if self.trace_plot == True:
+						markers = ['+', 'D']
+						colors = ['black', 'dimgray']
+						## --- prediction accuracy---- 
+						print(np.sum(clf.predict(X) == y_binary)/len(y))
+						import matplotlib.pyplot as plt
+						plt.figure(figsize=(10, 10))
+						plt.subplot()
+						y_pred = clf.predict(X)
+						plt.scatter(X[y_pred == 1, 0], X[y_pred == 1, 1],c=colors[0], marker=markers[0],label=f'Class {i}')
 
-					# plt.subplot(1, 3, 2)
-					# plt.scatter(X[:, 0], X[:, 1], c=y_binary + 5, cmap='viridis', edgecolor='k', s=40)
-					# plt.title("Predicted Labels")
-					# plt.xlabel("x1")
-					# plt.ylabel("x2")
+						plt.scatter(X[y_pred == 0, 0], X[y_pred == 0, 1],c=colors[1], marker=markers[1],label=f'other')
+						plt.xlabel("x1")
+						plt.ylabel("x2")
+						plt.legend(loc='lower right')
+						filename = f'Plots/classifier_chain_plots/oneVSrest_class{i}_predict.pdf'
+						plt.savefig(filename, bbox_inches='tight', format = 'pdf')
+						plt.clf()
 
-					# plt.subplot(1, 3, 3)
-					# plt.scatter(X[:, 0], X[:, 1], c=(clf.decision_function(X)> 1).astype(int) + 5, cmap='viridis', edgecolor='k', s=40)
-					# plt.title(f"with threshold {0.5}")
-					# plt.xlabel("x1")
-					# plt.ylabel("x2")
-					# plt.show()
+						plt.subplot()
+						plt.scatter(X[y_binary == 1, 0], X[y_binary == 1, 1],c=colors[0], marker=markers[0],label=f'Class {i}')
+
+						plt.scatter(X[y_binary == 0, 0], X[y_binary == 0, 1],c=colors[1], marker=markers[1],label=f'other')
+						plt.xlabel("x1")
+						plt.ylabel("x2")
+						plt.legend(loc='lower right')
+
+						filename = f'Plots/classifier_chain_plots/oneVSrest_class{i}_actual.pdf'
+						plt.savefig(filename, bbox_inches='tight', format = 'pdf')
+						plt.clf()
 
 					self.classifiers[cls] = clf
 			return self

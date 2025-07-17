@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 
 class SVM_Penalized(object):
-	def __init__(self, C, K, tol = 0.0001, reduced = False):
+	def __init__(self, C, K, gp_env = None,tol = 0.0001, reduced = False):
 		'''
 		reduced refer to ignoring the  W^TW part
 		'''
@@ -22,6 +22,7 @@ class SVM_Penalized(object):
 		self.alpha =[]
 		self.coef_ = []           # w consists of 2 elements
 		self.intercept_ = [] 
+		self.gp_env = gp_env
 
 	def fit_SVM(self, A_train, C_train):
 
@@ -33,11 +34,10 @@ class SVM_Penalized(object):
 
 	def fit_nonOptimal(self,A_train,C_train):
 		n, p = np.array(A_train).shape
-		gp_env = gp.Env(empty=True) 
-		#suppress or show output
-		gp_env.setParam("OutputFlag",0)
-		gp_env.start()
-		m = gp.Model("gp model",env=gp_env)
+		# gp_env = gp.Env(empty=True) 
+		# gp_env.setParam("OutputFlag",0)
+		# gp_env.start()
+		m = gp.Model("gp model",env=self.gp_env)
 		m.params.NonConvex = 2
 		alpha = m.addVars(n, vtype=GRB.CONTINUOUS, lb = 0, ub = self.C, name = 'alpha')
 		m.addConstr(quicksum( alpha[j]*C_train[j] for j in range(n))==0 )
@@ -53,11 +53,11 @@ class SVM_Penalized(object):
 			alpha_ = m.getAttr('x',alpha)
 			self.alpha = alpha_
 			m.dispose()
-			gp_env.dispose()
+			# gp_env.dispose()
 		else:
 			print("No optimal solution found in fit_nonOptimal, with C = ", self.C)
 			m.dispose()
-			gp_env.dispose()
+			# gp_env.dispose()
 
 	def fit(self, A_train_original, C_train, dQ = None):
 		if self.reduced:
@@ -86,11 +86,10 @@ class SVM_Penalized(object):
 
 
 
-		gp_env = gp.Env(empty=True) 
-		#suppress or show output
-		gp_env.setParam("OutputFlag",0)
-		gp_env.start()
-		m = gp.Model("gp model",env=gp_env)
+		# gp_env = gp.Env(empty=True) 
+		# gp_env.setParam("OutputFlag",0)
+		# gp_env.start()
+		m = gp.Model("gp model",env=self.gp_env)
 		m.params.NonConvex = 2
 
 
@@ -136,11 +135,11 @@ class SVM_Penalized(object):
 			t = (np.sum( [self.alpha[j]*(w_1 - w_1_proj_2)@A_train[j].T*C_train[j]  for j in range(n)] ) - (w_1 - w_1_proj_2)@w_1_proj_2.T - penalty )/((w_1 - w_1_proj_2)@(w_1 - w_1_proj_2).T)
 
 			m.dispose()
-			gp_env.dispose()
+			#gp_env.dispose()
 		else:
 			#print("No optimal solution found")
 			m.dispose()
-			gp_env.dispose()
+			#gp_env.dispose()
 			self.fit_nonOptimal(A_train,C_train)
 			t = 0
 
@@ -165,53 +164,6 @@ class SVM_Penalized(object):
 		self.coef_.append(w_penalized_std / scaler.scale_)           # w consists of 2 elements
 		self.intercept_.append(intercept_penalized_std - np.dot(w_penalized_std, scaler.mean_ / scaler.scale_))
 
-	# def fit_reduced(self, A_train_original, C_train, dQ = None):
-	# 	if dQ is None:
-	# 		raise ValueError("must provide gradients")
-	# 	n, p = np.array(A_train_original).shape
-	# 	#standardize dQ
-	# 	dQ = [ gradient/np.linalg.norm(gradient) for gradient in dQ]
-	# 	normalized_mean_vector = np.mean(dQ , axis=0)/np.linalg.norm(np.mean(dQ , axis=0))
-	# 	# Define the dual variables (alphas)
-	# 	alpha = cp.Variable(n)
-
-	# 	# Standardize the data
-	# 	scaler = StandardScaler()
-	# 	A_train = scaler.fit_transform(A_train_original)
-
-	# 	objective = cp.Maximize(cp.sum(alpha) - cp.sum(cp.multiply(np.matmul(normalized_mean_vector, A_train.T), cp.multiply(C_train, alpha) )))
-
-	# 	# Constraints
-	# 	constraints = [alpha >= 0, alpha <= self.C, cp.sum(cp.multiply(C_train, alpha)) == 0]
-
-	# 	# Solve the problem using the SCS solver
-	# 	problem = cp.Problem(objective, constraints)
-	# 	problem.solve(solver=cp.SCS)
-
-
-	# 	# Get the optimal alpha values
-	# 	self.alpha = alpha.value
-
-	# 	# Compute the weight vector w
-	# 	w = normalized_mean_vector
-
-	# 	# Identify support vectors
-	# 	support_vectors = []
-	# 	tol = 0.001
-
-	# 	for i in range(n):
-	# 		if tol < self.alpha[i] <= self.C:
-	# 			support_vectors.append(i)
-		
-	# 	# Calculate b using the average value of the support vectors
-	# 	if support_vectors:
-	# 		b_values = [C_train[i] - np.dot(A_train[i], normalized_mean_vector) for i in support_vectors]
-	# 		intercept_penalized_std = np.mean(b_values)
-	# 	else:
-	# 		intercept_penalized_std = 0
-
-	# 	self.coef_.append(normalized_mean_vector / scaler.scale_)           # w consists of 2 elements
-	# 	self.intercept_.append(intercept_penalized_std - np.dot(normalized_mean_vector, scaler.mean_ / scaler.scale_))
 
 	def decision_function(self, A_train):
 		score = [np.sum(self.coef_[0]*A_train[j]) + self.intercept_[0] for j in range(len(A_train))]
