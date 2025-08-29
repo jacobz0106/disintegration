@@ -8,7 +8,7 @@ for model in "${models[@]}"; do
   for size in "${samples[@]}"; do
     for method in "${methods[@]}"; do
       jobname="lotka_${model}_${size}_${method}"
-      sbatch --time=13-00:00:00 \
+      sbatch --time=7-00:00:00 \
              --cpus-per-task=5 \
              --mem-per-cpu=10G \
              -o out/${jobname}.out \
