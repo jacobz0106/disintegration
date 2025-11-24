@@ -10,6 +10,7 @@ for model in "${models[@]}"; do
       jobname="lotka_${model}_${size}_${method}"
       sbatch --time=7-00:00:00 \
              --cpus-per-task=8 \
+             --mem-per-cpu=10G \
              -o out/${jobname}.out \
              -e out/${jobname}.err \
              ${jobname}.sh
