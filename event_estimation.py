@@ -516,7 +516,7 @@ def main():
 		critical_values = np.linspace(out_range[0], out_range[1], numIntervals + 1)[1:-1]
 	else:
 		# read emperical data
-
+		pass
 
 	#event_estimation(quantity_of_interest,gradientFunction,event, n, domains, critical_values, kde_cdf,repeat = 10)
 
