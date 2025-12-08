@@ -25,6 +25,7 @@ from tqdm import tqdm
 from functools import partial
 import warnings
 from sklearn.exceptions import ConvergenceWarning
+from SIR import *
 
 with warnings.catch_warnings():
 	warnings.filterwarnings("ignore", category=ConvergenceWarning)
@@ -245,17 +246,36 @@ def event_estimation(function_y,function_Gradient,event, n, domains, critical_va
 
 #### wrapper for parallel -------------------------------------------------------------------------------------
 shared_lock = None
+worker_context = {}
 
-def initializer(lock_):
-	global shared_lock
+def initializer(lock_, context):
+	global shared_lock, worker_context
 	shared_lock = lock_
+	worker_context = context
 
 
 def run_single_task(arg):
 	return single_run_sqlite(*arg)
 
-def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, model_name, event,
-					  domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,db_keys):
+def single_run_sqlite(n, r):
+	if not worker_context:
+		raise RuntimeError("Worker context was not initialised before task execution.")
+
+	context = worker_context
+	out_suffix = context['out_suffix']
+	quantity_of_interest = context['quantity_of_interest']
+	gradientFunction = context['gradientFunction']
+	model_name = context['model_name']
+	domains = context['domains']
+	critical_values = context['critical_values']
+	kde_cdf = context['kde_cdf']
+	X_test = context['X_test']
+	y_test = context['y_test']
+	sample_method = context['sample_method']
+	grid_search = context['grid_search']
+	db_keys = context['db_keys']
+	event_bounds = context['event_bounds']
+
 	key = f"{sample_method}_{out_suffix}_{n}_repeat_{r}_intervals_{len(critical_values) + 1}"
 
 	if key in db_keys:
@@ -324,7 +344,9 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 
 	predictionAccuracy = np.sum(best_model.predict(X_test) == y_test) / len(y_test)
 	Labels = best_model.predict(X_test)
-	Within_events = check_points_in_nd_domain(np.array(X_test), np.array(event)[:, 0], np.array(event)[:, 1])
+	Within_events = check_points_in_nd_domain(
+		X_test, event_bounds[:, 0], event_bounds[:, 1]
+	)
 
 	event_probability = 0
 	for equivalenceSpace in np.unique(Labels):
@@ -352,11 +374,7 @@ def accuracyComparison_parallel_repeat(
 	y_test = testSIP.df['Label'].values
 
 	# Step 3: Prepare args
-	args = [
-		(out_suffix, n, r, quantity_of_interest, gradientFunction, model_name, event,
-		 domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,db_keys)
-		for n in N for r in range(repeat)
-	]
+	args = [(n, r) for n in N for r in range(repeat)]
 
 	# Step 4: Run in parallel
 	ctx = get_context("spawn")
@@ -369,9 +387,29 @@ def accuracyComparison_parallel_repeat(
 	if model_name == 'PPSVMG':
 		max_workers = int(cpu_count() / 2)	
 	else:
-		max_workers = 5
+		max_workers = 4
+	event_bounds = np.array(event)
+	pool_context = {
+		'out_suffix': out_suffix,
+		'quantity_of_interest': quantity_of_interest,
+		'gradientFunction': gradientFunction,
+		'model_name': model_name,
+		'domains': domains,
+		'critical_values': np.array(critical_values),
+		'kde_cdf': kde_cdf,
+		'X_test': X_test,
+		'y_test': y_test,
+		'sample_method': sample_method,
+		'grid_search': grid_search,
+		'db_keys': db_keys,
+		'event_bounds': event_bounds,
+	}
 
-	with ctx.Pool(processes=max_workers) as pool:
+	with ctx.Pool(
+		processes=max_workers,
+		initializer=initializer,
+		initargs=(lock, pool_context),
+	) as pool:
 		for result in tqdm(pool.imap_unordered(run_single_task, args), total=len(args)):
 			if result is not None:
 				key, acc, est = result
@@ -506,14 +544,16 @@ def main():
 	else:
 		raise ValueError('Not implemented.')
 
-
-	dataSIP = SIP_Data(quantity_of_interest, gradientFunction, 1, len(domains) , *domains)
-	dataSIP.generate_Uniform(n, Gradient = False)
-	dfTrain = dataSIP.df.iloc[:, :-2].values
-	kde_cdf = kde_estimation(np.array(dataSIP.df['f']).reshape(-1,1))
-	out_range = [min(np.array(dataSIP.df['f']).reshape(-1)),max(np.array(dataSIP.df['f']).reshape(-1))]
-	critical_values = np.linspace(out_range[0], out_range[1], numIntervals + 1)[1:-1]
-
+	if 	example == 'SIR':
+		dataSIP = SIP_Data(quantity_of_interest, gradientFunction, 1, len(domains) , *domains)
+		dataSIP.generate_Uniform(n, Gradient = False)
+		dfTrain = dataSIP.df.iloc[:, :-2].values
+		kde_cdf = kde_estimation(np.array(dataSIP.df['f']).reshape(-1,1))
+		out_range = [min(np.array(dataSIP.df['f']).reshape(-1)),max(np.array(dataSIP.df['f']).reshape(-1))]
+		critical_values = np.linspace(out_range[0], out_range[1], numIntervals + 1)[1:-1]
+	else:
+		# read emperical data
+		pass
 
 
 	#event_estimation(quantity_of_interest,gradientFunction,event, n, domains, critical_values, kde_cdf,repeat = 10)
