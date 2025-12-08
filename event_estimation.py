@@ -368,9 +368,9 @@ def accuracyComparison_parallel_repeat(
 	# create a lock for file access
 	lock = Lock()
 	if model_name == 'PPSVMG':
-		max_workers = 2
+		max_workers = 1
 	else:
-		max_workers = 2
+		max_workers = 1
 
 	with ctx.Pool(processes=max_workers) as pool:
 		for result in tqdm(pool.imap_unordered(run_single_task, args), total=len(args)):
