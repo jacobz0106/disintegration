@@ -507,7 +507,7 @@ def main():
 	else:
 		raise ValueError('Not implemented.')
 
-	if 	example == 'SIR':
+	if example != 'SIR':
 		dataSIP = SIP_Data(quantity_of_interest, gradientFunction, 1, len(domains) , *domains)
 		dataSIP.generate_Uniform(n, Gradient = False)
 		dfTrain = dataSIP.df.iloc[:, :-2].values
