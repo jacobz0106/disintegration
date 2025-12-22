@@ -8,7 +8,7 @@ for example in "${examples[@]}"; do
   for size in "${samples[@]}"; do
     for method in "${methods[@]}"; do
       jobname="${example}_${size}_${method}"
-      sbatch --time=13-00:00:00 \
+      sbatch --time=6-23:00:00 \
              --cpus-per-task=5 \
              --mem-per-cpu=5G \
              -o out/${jobname}.out \
