@@ -106,7 +106,7 @@ def main():
 		]
 		lotka = lotkaVolterra()
 		quantity_of_interest=lotka.quantity_interest
-		gradientFunction=lotka.Gradients
+		gradientFunction=lotka.gradients
 	else:
 		raise ValueError('Not implemented.')
 
