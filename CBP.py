@@ -17,7 +17,6 @@ from sklearn.base import BaseEstimator, ClassifierMixin,clone
 from sklearn.multioutput import ClassifierChain
 import sklearn
 sklearn.set_config(enable_metadata_routing=True)
-import gurobipy as gp
 
 class LabelEncode(object):
 	def __init__(self, L):
@@ -522,18 +521,13 @@ class GMSVM_reduced(object):
 		if self.similarity < 1.0:
 			self.reduce_clusters()
 
-		gp_env = gp.Env(empty=True) 
-		gp_env.setParam("OutputFlag",0)
-		gp_env.start()
-
 		for i in self.clusters.labels_:
 			nearest_index = self.midpointClusters[i]
 			GE_point_index = np.unique(np.array(self.cbp.points)[nearest_index].reshape(-1))
-			model = SVM_Penalized(C = self.C, K = self.K, gp_env = gp_env, reduced = self.reduced)
+			model = SVM_Penalized(C = self.C, K = self.K, reduced = self.reduced)
 			model.fit(self.A_train[GE_point_index], self.C_train[GE_point_index], np.array(dQ)[GE_point_index])
 			self.SVM.append(model)
 			self.clusterCentroids.append(np.mean(A_train[GE_point_index], axis = 0) )
-		gp_env.dispose()
 
 	def ensemble(self, x):
 		I = Euclidean_distance_vector(x,self.clusterCentroids)

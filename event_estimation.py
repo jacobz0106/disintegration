@@ -264,18 +264,21 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 		return None  # Skip
 
 	dataSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
-	# out_suffix = f'{example}_{model}'
+	# out_suffix = f'{example}_{model}'; key = f'{sample_method}_{out_suffix}_...'
+	# so parts[1] is the example name, parts[0] is the sample_method
 	parts = key.split("_")
-	file_df = f'../data/{parts[0]}/df_Train_size{n}_interval_{len(critical_values) + 1}_repeat{r}_{sample_method}.csv'
-	file_dQ = f'../data/{parts[0]}/dQ_Train_size{n}_interval_{len(critical_values) + 1}_repeat{r}_{sample_method}.csv'
+	example_dir = parts[1]
+	file_df = f'../data/{example_dir}/df_Train_size{n}_interval_{len(critical_values) + 1}_repeat{r}_{sample_method}.csv'
+	file_dQ = f'../data/{example_dir}/dQ_Train_size{n}_interval_{len(critical_values) + 1}_repeat{r}_{sample_method}.csv'
 
-	if os.path.exists(file_df) and os.path.exists(file_dQ):
-		df = pd.read_csv(file_df,index_col=0)
-		df = df.reset_index(drop=True)
-		dQ = pd.read_csv(file_dQ,index_col=0, header = None)
-		dQ = dQ.reset_index(drop=True).values.tolist()
+	needs_gradient = (model_name == 'PPSVMG')
+	data_cached = os.path.exists(file_df) and (not needs_gradient or os.path.exists(file_dQ))
+
+	if data_cached:
+		df = pd.read_csv(file_df, index_col=0).reset_index(drop=True)
 		Label = df['Label'].values
 		dfTrain = df.iloc[:, :-2].values
+		dQ = (pd.read_csv(file_dQ, header=None).values.tolist()) if needs_gradient else None
 	else:
 		if sample_method == 'POF':
 			dataSIP.generate_POF(n=n, CONST_a=2, iniPoints=5, sampleCriteria='k-dDarts')
@@ -288,6 +291,14 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 		Label = dataSIP.df['Label'].values
 		dfTrain = dataSIP.df.iloc[:, :-2].values
 		dQ = dataSIP.Gradient
+
+		# Persist generated data so future runs can skip generation
+		os.makedirs(os.path.dirname(file_df), exist_ok=True)
+		dataSIP.df.to_csv(file_df)
+		if needs_gradient and dQ is not None and dQ is not False:
+			dq_arr = dQ.values if hasattr(dQ, 'values') else np.array(dQ)
+			if dq_arr.size > 0:
+				pd.DataFrame(dq_arr).to_csv(file_dQ, header=False, index=False)
 
 	X_train = dfTrain
 	y_train = Label
@@ -362,35 +373,22 @@ def accuracyComparison_parallel_repeat(
 	# Step 4: Run in parallel
 	ctx = get_context("spawn")
 	results = []
-	results_to_write = {}
-	last_write_time = time.time()
 
-	# create a lock for file access
-	lock = Lock()
+	# PPSVMG already runs GridSearchCV internally; keep it at 1 to avoid
+	# memory blow-up. Other models are lightweight enough to parallelise.
 	if model_name == 'PPSVMG':
 		max_workers = 1
 	else:
-		max_workers = 1
+		max_workers = max(1, cpu_count() - 1)
 
+	os.makedirs(os.path.dirname(db_path), exist_ok=True)
 	with ctx.Pool(processes=max_workers) as pool:
-		for result in tqdm(pool.imap_unordered(run_single_task, args), total=len(args)):
-			if result is not None:
-				key, acc, est = result
-				results.append((key, acc, est))
-				results_to_write[key] = {'accuracy': acc, 'estimation': est}
-
-	# 		# Step 5: Periodically flush results to SQLite
-	# 		if time.time() - last_write_time >= 600 and results_to_write:  # 10 minutes
-	# 			with lock:
-	# 				with SqliteDict(db_path, autocommit=True, timeout=60) as db:
-	# 					db.update(results_to_write)
-	# 			results_to_write = {}
-	# 			last_write_time = time.time()
-
-	# # Step 6: Final flush
-	# if results_to_write:
-	# 	with SqliteDict(db_path, autocommit=True) as db:
-	# 		db.update(results_to_write)
+		with SqliteDict(db_path, autocommit=True) as db:
+			for result in tqdm(pool.imap_unordered(run_single_task, args), total=len(args)):
+				if result is not None:
+					key, acc, est = result
+					results.append((key, acc, est))
+					db[key] = {'accuracy': acc, 'estimation': est}
 
 	return results
 	
@@ -508,14 +506,20 @@ def main():
 		raise ValueError('Not implemented.')
 
 	if example != 'SIR':
-		dataSIP = SIP_Data(quantity_of_interest, gradientFunction, 1, len(domains) , *domains)
-		dataSIP.generate_Uniform(n, Gradient = False)
-		dfTrain = dataSIP.df.iloc[:, :-2].values
-		kde_cdf = kde_estimation(np.array(dataSIP.df['f']).reshape(-1,1))
-		out_range = [min(np.array(dataSIP.df['f']).reshape(-1)),max(np.array(dataSIP.df['f']).reshape(-1))]
+		kde_source_file = f'../data/{example}/kde_source_n{n}.csv'
+		if os.path.exists(kde_source_file):
+			f_values = pd.read_csv(kde_source_file, index_col=0)['f'].values
+		else:
+			dataSIP = SIP_Data(quantity_of_interest, gradientFunction, 1, len(domains), *domains)
+			dataSIP.generate_Uniform(n, Gradient=False)
+			f_values = np.array(dataSIP.df['f'])
+			os.makedirs(os.path.dirname(kde_source_file), exist_ok=True)
+			dataSIP.df[['f']].to_csv(kde_source_file)
+		kde_cdf = kde_estimation(f_values.reshape(-1, 1))
+		out_range = [f_values.min(), f_values.max()]
 		critical_values = np.linspace(out_range[0], out_range[1], numIntervals + 1)[1:-1]
 	else:
-		# read emperical data
+		# read empirical data
 		pass
 
 	#event_estimation(quantity_of_interest,gradientFunction,event, n, domains, critical_values, kde_cdf,repeat = 10)
