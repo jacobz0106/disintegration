@@ -45,29 +45,30 @@ class SIR_model(object):
 
 	def gradients(self,para):
 		beta, gamma = para
-		ls_gamma = np.zeros((self.n, 3))
-		ls_gamma[0] = (0, 0, 0)
-		ls_beta = np.zeros((self.n, 3))
-		ls_beta[0] = (0, 0, 0)
+		inc = self.inc
+		n = int((self.T + self.T0) / inc) + 1
+		T0_idx = int(self.T0 / inc)
+
+		ls_gamma = np.zeros((n, 3))
+		ls_beta = np.zeros((n, 3))
 		self.function_SIR(beta, gamma)
 		F = self.df
-		inc = self.T/self.n
-		for i in range(1,self.n):
+		for i in range(1, n):
 			S, I, R = F[i-1]
 
 			g1, g2, g3 = ls_gamma[i-1]
 			ls_gamma[i][0] = inc*(-beta*I*g1 - beta*S*g2) + ls_gamma[i-1][0]
 			ls_gamma[i][1] = inc*(beta*I*g1 + (beta*S - gamma)*g2 - I) + ls_gamma[i-1][1]
-			ls_gamma[i][2] = inc*(gamma*g2 + I ) + ls_gamma[i-1][2]
+			ls_gamma[i][2] = inc*(gamma*g2 + I) + ls_gamma[i-1][2]
 
 			d1, d2, d3 = ls_beta[i-1]
 			ls_beta[i][0] = inc*(-beta*I*d1 - beta*S*d2 - I*S) + ls_beta[i-1][0]
 			ls_beta[i][1] = inc*(beta*I*d1 + (beta*S - gamma)*d2 + I*S) + ls_beta[i-1][1]
 			ls_beta[i][2] = inc*(gamma*d2) + ls_beta[i-1][2]
 
-
-		# dS/dbeta, dS/dgamma
-		return([ (ls_beta[self.T0 + self.T ][1] - ls_beta[self.T0 ][1])/self.T , (ls_gamma[self.T0 + self.T ][1] - ls_gamma[self.T0 ][1])/self.T ])
+		# dQ/dbeta, dQ/dgamma  where Q = (I(T+T0) - I(T0)) / T
+		return [(ls_beta[-1][1] - ls_beta[T0_idx][1]) / self.T,
+				(ls_gamma[-1][1] - ls_gamma[T0_idx][1]) / self.T]
 
 
 
