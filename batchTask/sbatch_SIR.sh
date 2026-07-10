@@ -1,5 +1,5 @@
 #!/bin/bash
-models=("NN", "PPSVMG")
+models=("NN" "PPSVMG")
 samples=(20 10 5)
 methods=("Random" "POF")
 
