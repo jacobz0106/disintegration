@@ -502,6 +502,17 @@ def main():
 		lotka = lotkaVolterra()
 		quantity_of_interest=lotka.quantity_interest
 		gradientFunction=lotka.gradients
+	elif example == 'SIR':
+		# Λ₁ = [0, 0.35] × [0, 0.6]; β ~ Beta(12,30), γ ~ Beta(6,30); T0=10, T=30
+		domains = [[0, 0.35], [0, 0.6]]
+		sir = SIR_model(T=30, T0=10)
+		quantity_of_interest = sir.quantity_interest
+		gradientFunction = sir.gradients
+		# Event options (joint probabilities under the Beta priors):
+		#   A ~18%: [[0.25, 0.35], [0.06, 0.14]]  — high β, low γ
+		#   B ~21%: [[0.20, 0.30], [0.05, 0.15]]  — moderate β, low γ
+		#   C ~30%: [[0.22, 0.32], [0.12, 0.22]]  — moderate β and γ
+		event = [[0.25, 0.35], [0.06, 0.14]]
 	else:
 		raise ValueError('Not implemented.')
 
@@ -519,8 +530,19 @@ def main():
 		out_range = [f_values.min(), f_values.max()]
 		critical_values = np.linspace(out_range[0], out_range[1], numIntervals + 1)[1:-1]
 	else:
-		# read empirical data
-		pass
+		# SIR: use real Surge 2 data as the empirical Q_I distribution
+		emp_path = '../data/SIR/empericalData/Surge2_QoI_30_days.csv'
+		f_values = pd.read_csv(emp_path)['case_prop_diff_over_T'].values
+		# Scott's rule bandwidth scaled to the data range
+		bw = 1.06 * f_values.std() * len(f_values) ** (-0.2)
+		kde = KernelDensity(kernel='gaussian', bandwidth=bw).fit(f_values.reshape(-1, 1))
+		x_grid = np.linspace(f_values.min(), f_values.max(), 1000)
+		log_pdf = kde.score_samples(x_grid[:, None])
+		pdf = np.exp(log_pdf)
+		cdf_vals = cumtrapz(pdf, x_grid, initial=0)
+		kde_cdf = interp1d(x_grid, cdf_vals, kind='linear', fill_value='extrapolate')
+		out_range = [float(f_values.min()), float(f_values.max())]
+		critical_values = np.linspace(out_range[0], out_range[1], numIntervals + 1)[1:-1]
 
 	#event_estimation(quantity_of_interest,gradientFunction,event, n, domains, critical_values, kde_cdf,repeat = 10)
 

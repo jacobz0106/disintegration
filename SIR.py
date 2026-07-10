@@ -5,7 +5,7 @@ class SIR_model(object):
 	def __init__(self,initial_conditions = [0.999, 0.001, 0],T = 30,T0 = 10,inc = 0.01, method = 'Heun'):
 		"""
 		t in [T_0, T_1]
-		Synthetic: [0.15,0.45]x [0.05, 0.3], T = 30 # Beta ∼Beta(12, 30), Gamma ∼ Beta(6, 30)
+		Synthetic: [0, 0.35] x [0, 0.6], T = 30 # Beta ∼Beta(12, 30), Gamma ∼ Beta(6, 30)
 		# real data: surge 1: lambada, beta[0.05, 0.32]X[0.067, 0.25], T = 64 // surge 2:  [0.18, 0.5] x  [.071, .33] , T_0 = 1 
 		"""
 		self.initial_conditions = initial_conditions
