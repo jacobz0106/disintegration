@@ -784,6 +784,9 @@ class ClassifierChainWrapper(BaseEstimator, ClassifierMixin):
 			return self
 
 		def predict(self, X):
+			X = np.asarray(X)
+			if len(self.classes_) == 1:
+				return np.full(X.shape[0], self.classes_[0])
 			scores = []
 			for cls in self.classes_[0:-1]:
 					clf = self.classifiers[cls]
