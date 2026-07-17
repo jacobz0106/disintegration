@@ -347,14 +347,79 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 
 	return key, predictionAccuracy, event_probability
 
+def _diagnose_db_writability(db_path):
+	"""Diagnose SQLite db path writability before starting expensive compute.
+
+	Prints: cwd, PID, SLURM_JOB_ID, absolute db path, parent-dir path,
+	existence, writability, and permission modes. Creates the parent dir if
+	missing. Attempts a write probe on the database itself. Raises
+	PermissionError with a specific message if any writability check fails.
+	"""
+	import stat
+	abs_path   = os.path.abspath(db_path)
+	parent_dir = os.path.dirname(abs_path) or "."
+	slurm_job  = os.environ.get('SLURM_JOB_ID', 'n/a')
+
+	print(f"[db-preflight] cwd            = {os.getcwd()}")
+	print(f"[db-preflight] pid            = {os.getpid()}")
+	print(f"[db-preflight] SLURM_JOB_ID   = {slurm_job}")
+	print(f"[db-preflight] db_path        = {abs_path}")
+	print(f"[db-preflight] parent_dir     = {parent_dir}")
+
+	if not os.path.isdir(parent_dir):
+		try:
+			os.makedirs(parent_dir, exist_ok=True)
+			print(f"[db-preflight] parent_dir     = created")
+		except OSError as e:
+			raise PermissionError(
+				f"cannot create parent dir {parent_dir}: {e}") from e
+
+	try:
+		parent_mode = stat.filemode(os.stat(parent_dir).st_mode)
+	except OSError as e:
+		raise PermissionError(f"cannot stat parent dir {parent_dir}: {e}") from e
+	parent_writable = os.access(parent_dir, os.W_OK)
+	print(f"[db-preflight] parent mode    = {parent_mode}  writable={parent_writable}")
+
+	db_exists = os.path.exists(abs_path)
+	print(f"[db-preflight] db_exists      = {db_exists}")
+	if db_exists:
+		db_mode     = stat.filemode(os.stat(abs_path).st_mode)
+		db_writable = os.access(abs_path, os.W_OK)
+		print(f"[db-preflight] db mode        = {db_mode}  writable={db_writable}")
+		if not db_writable:
+			raise PermissionError(
+				f"database file is not writable: {abs_path} (mode {db_mode})")
+	if not parent_writable:
+		raise PermissionError(
+			f"parent directory is not writable: {parent_dir} (mode {parent_mode})")
+
+	# Probe an actual SQLite write/commit so we catch RO mounts or locking
+	# problems that os.access cannot see (e.g. Lustre/NFS quirks).
+	probe_key = "__preflight_probe__"
+	try:
+		with SqliteDict(abs_path, autocommit=False) as db:
+			db[probe_key] = 1
+			db.commit()
+			del db[probe_key]
+			db.commit()
+	except Exception as e:
+		raise PermissionError(
+			f"SQLite write probe failed on {abs_path}: {e}") from e
+	print(f"[db-preflight] write probe    = ok")
+
+
 def accuracyComparison_parallel_repeat(
 	quantity_of_interest, gradientFunction, model_name, event,
 	N, domains, critical_values, kde_cdf, out_suffix,
 	nTest=2000, repeat=20, sample_method='POF', grid_search=True,
-	db_path='Results/dic.sqlite'):
+	db_path='Results/dic.sqlite', commit_every=10):
 
-	# Step 1: Load existing keys before parallel
-	with SqliteDict(db_path, autocommit=True) as db:
+	# Step 0: Fail fast if the results DB cannot be written to.
+	_diagnose_db_writability(db_path)
+
+	# Step 1: Load existing keys before parallel (workers only read this set).
+	with SqliteDict(db_path, autocommit=False) as db:
 		db_keys = set(db.keys())
 
 	# Step 2: Setup test data
@@ -370,9 +435,12 @@ def accuracyComparison_parallel_repeat(
 		for n in N for r in range(repeat)
 	]
 
-	# Step 4: Run in parallel
+	# Step 4: Run in parallel. Workers only compute + return; only the parent
+	# process opens or writes to the SQLite database.
 	ctx = get_context("spawn")
 	results = []
+	pending = []  # results assigned to db but not yet committed
+	unsaved = []  # results that could not be committed at all
 
 	# PPSVMG already runs GridSearchCV internally; keep it at 1 to avoid
 	# memory blow-up. Other models are lightweight enough to parallelise.
@@ -381,14 +449,48 @@ def accuracyComparison_parallel_repeat(
 	else:
 		max_workers = max(1, cpu_count() - 1)
 
-	os.makedirs(os.path.dirname(db_path), exist_ok=True)
+	def _flush(db):
+		"""Commit pending writes; on failure, move them to unsaved."""
+		if not pending:
+			return
+		try:
+			db.commit()
+			pending.clear()
+		except Exception as e:
+			print(f"[db-commit-error] commit failed on {len(pending)} pending items: {e}")
+			print(f"[db-commit-error] unsaved keys: {pending}")
+			unsaved.extend(pending)
+			pending.clear()
+			raise
+
 	with ctx.Pool(processes=max_workers) as pool:
-		with SqliteDict(db_path, autocommit=True) as db:
+		db = SqliteDict(db_path, autocommit=False)
+		try:
 			for result in tqdm(pool.imap_unordered(run_single_task, args), total=len(args)):
-				if result is not None:
-					key, acc, est = result
-					results.append((key, acc, est))
+				if result is None:
+					continue
+				key, acc, est = result
+				results.append((key, acc, est))
+				try:
 					db[key] = {'accuracy': acc, 'estimation': est}
+					pending.append(key)
+				except Exception as e:
+					print(f"[db-write-error] failed to stage key {key}: {e}")
+					unsaved.append(key)
+					continue
+				if len(pending) >= commit_every:
+					_flush(db)
+			# Final flush of any remaining pending writes.
+			_flush(db)
+		finally:
+			try:
+				db.close()
+			except Exception as e:
+				print(f"[db-close-error] {e}")
+			if unsaved:
+				print(f"[db-summary] {len(unsaved)} result(s) NOT persisted: {unsaved}")
+			else:
+				print(f"[db-summary] all {len(results)} result(s) committed")
 
 	return results
 	
@@ -564,6 +666,11 @@ def main():
 
 	#event_estimation(quantity_of_interest,gradientFunction,event, n, domains, critical_values, kde_cdf,repeat = 10)
 
+	# db_path may be overridden by env var EVENT_DB_PATH so batch scripts can
+	# redirect results without editing the source. Do NOT default to a scratch
+	# path here — checkpointing between scratch and shared FS is not yet handled.
+	db_path = os.environ.get('EVENT_DB_PATH', f'../Results/{db_preffix}.sqlite')
+
 	accuracyComparison_parallel_repeat(
 	quantity_of_interest=quantity_of_interest,
 	gradientFunction=gradientFunction,
@@ -578,7 +685,7 @@ def main():
 	repeat=repeat,
 	sample_method=sample_method,
 	grid_search=True,
-	db_path=f'../Results/{db_preffix}.sqlite'
+	db_path=db_path,
 	)
 
 	#accuracyComparisonNaive(example, quantity_of_interest, gradientFunction, event, N, domains, critical_values,kde_cdf, repeat  = 30)
