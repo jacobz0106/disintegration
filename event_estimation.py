@@ -396,6 +396,23 @@ def _diagnose_db_writability(db_path):
 	parent_writable = os.access(parent_dir, os.W_OK)
 	print(f"[db-preflight] parent mode    = {parent_mode}  writable={parent_writable}")
 
+	# Warn about leftover journal/wal files from a prior crashed run.
+	# Their presence means SQLite will roll back everything since the last
+	# commit when the next process opens the DB — completed-but-uncommitted
+	# work will disappear and re-run. Not deleted automatically because
+	# another process could legitimately be mid-transaction.
+	for suffix in ('-journal', '-wal', '-shm'):
+		sidecar = abs_path + suffix
+		if os.path.exists(sidecar):
+			try:
+				import time as _time
+				mtime = _time.strftime('%Y-%m-%d %H:%M:%S',
+				                       _time.localtime(os.path.getmtime(sidecar)))
+			except OSError:
+				mtime = 'unknown'
+			print(f"[db-preflight] STALE {suffix:<8} = {sidecar} (mtime {mtime}) — "
+			      f"SQLite may roll back uncommitted work from a prior crash")
+
 	db_exists = os.path.exists(abs_path)
 	print(f"[db-preflight] db_exists      = {db_exists}")
 	if db_exists:
@@ -428,7 +445,7 @@ def accuracyComparison_parallel_repeat(
 	quantity_of_interest, gradientFunction, model_name, event,
 	N, domains, critical_values, kde_cdf, out_suffix,
 	nTest=2000, repeat=20, sample_method='POF', grid_search=True,
-	db_path='Results/dic.sqlite', commit_every=10):
+	db_path='Results/dic.sqlite', commit_every=1):
 
 	# Step 0: Fail fast if the results DB cannot be written to.
 	_diagnose_db_writability(db_path)
@@ -498,6 +515,19 @@ def accuracyComparison_parallel_repeat(
 			# Final flush of any remaining pending writes.
 			_flush(db)
 		finally:
+			# Best-effort commit even if the main loop raised — otherwise up to
+			# commit_every recent results would be rolled back by SQLite on the
+			# next open (via the -journal file), causing completed work to
+			# re-run. This is the safeguard that makes db_keys reliable.
+			if pending:
+				try:
+					db.commit()
+					pending.clear()
+				except Exception as e:
+					print(f"[db-commit-error] finally-safeguard commit failed: {e}")
+					print(f"[db-commit-error] unsaved keys: {pending}")
+					unsaved.extend(pending)
+					pending.clear()
 			try:
 				db.close()
 			except Exception as e:
