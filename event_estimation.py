@@ -450,9 +450,12 @@ def accuracyComparison_parallel_repeat(
 	# Step 0: Fail fast if the results DB cannot be written to.
 	_diagnose_db_writability(db_path)
 
-	# Step 1: Load existing keys before parallel (workers only read this set).
+	# Step 1: Load committed keys from the .sqlite file. Opening writable
+	# forces SQLite to complete any pending journal rollback first, so
+	# db_keys reflects the *committed* state after recovery.
 	with SqliteDict(db_path, autocommit=False) as db:
 		db_keys = set(db.keys())
+	print(f"[db-preflight] committed_keys = {len(db_keys)}  (source: {os.path.abspath(db_path)})")
 
 	# Step 2: Setup test data
 	testSIP = SIP_Data_Multi(quantity_of_interest, gradientFunction, critical_values, len(domains), *domains)
@@ -460,12 +463,32 @@ def accuracyComparison_parallel_repeat(
 	X_test = testSIP.df.iloc[:, :-2].values
 	y_test = testSIP.df['Label'].values
 
-	# Step 3: Prepare args
+	# Step 3: Filter out tasks whose keys are already in the .sqlite file so
+	# workers never even start those runs. This is the parent-side skip; the
+	# `key in db_keys` check inside single_run_sqlite remains as a defence in
+	# depth in case db_keys changes between planning and dispatch.
+	def _mk_key(n, r):
+		return f"{sample_method}_{out_suffix}_{n}_repeat_{r}_intervals_{len(critical_values) + 1}"
+
+	all_tasks = [(n, r) for n in N for r in range(repeat)]
+	skipped   = [(n, r) for (n, r) in all_tasks if _mk_key(n, r) in db_keys]
+	to_run    = [(n, r) for (n, r) in all_tasks if _mk_key(n, r) not in db_keys]
+	print(f"[db-preflight] tasks_total    = {len(all_tasks)}")
+	print(f"[db-preflight] tasks_skipped  = {len(skipped)}  (already in DB)")
+	print(f"[db-preflight] tasks_to_run   = {len(to_run)}")
+	if 0 < len(to_run) <= 20:
+		for n, r in to_run:
+			print(f"[db-preflight] to_run key     = {_mk_key(n, r)}")
+
 	args = [
 		(out_suffix, n, r, quantity_of_interest, gradientFunction, model_name, event,
-		 domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search,db_keys)
-		for n in N for r in range(repeat)
+		 domains, critical_values, kde_cdf, X_test, y_test, sample_method, grid_search, db_keys)
+		for (n, r) in to_run
 	]
+
+	if not args:
+		print("[db-preflight] nothing to do — all tasks already in DB")
+		return []
 
 	# Step 4: Run in parallel. Workers only compute + return; only the parent
 	# process opens or writes to the SQLite database.
