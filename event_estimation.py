@@ -72,11 +72,18 @@ def perform_grid_search_cv(model, param_grid, X, y, cv=5,n_jobs=1):
 	Returns:
 	- best_model: The best model with tuned hyperparameters.
 	"""
-	# Create a GridSearchCV object
-	min_class_count = np.min(np.bincount(y))
+	# Create a GridSearchCV object. bincount() may include 0-count entries for
+	# gaps in the label space (e.g. SIR with 20 intervals rarely populates every
+	# class); ignore those when finding the smallest populated class.
+	counts = np.bincount(y)
+	min_class_count = int(counts[counts > 0].min())
 	cv = min(5, min_class_count)
-	if cv <= 2:
+	if cv < 2:
 		cv = 2
+	# StratifiedKFold (sklearn's default for classifiers) requires min class
+	# count >= n_splits. Fall back to plain KFold when that isn't achievable.
+	if min_class_count < 2:
+		cv = KFold(n_splits=2, shuffle=True, random_state=0)
 	grid_search = GridSearchCV(model, param_grid, cv=cv, scoring='accuracy', verbose = 0, n_jobs = n_jobs)
 	# Fit the grid search to the data
 	grid_search.fit(X, y)
@@ -322,7 +329,15 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 			best_model = model
 			best_model.fit(X_train, y_train, dQ)
 	else:
-		model = MLPClassifier(early_stopping=True, validation_fraction=0.1)
+		# early_stopping triggers MLPClassifier's internal stratified train/val
+		# split, which needs >=2 members per class inside every CV fold. With
+		# SIR + POF at 20 intervals, small folds routinely have 1-member
+		# classes and the stratified split raises. Disable early_stopping in
+		# that case (falls back to full max_iter training).
+		counts_y = np.bincount(y_train)
+		min_class_train = int(counts_y[counts_y > 0].min())
+		use_early_stopping = min_class_train >= 4
+		model = MLPClassifier(early_stopping=use_early_stopping, validation_fraction=0.1)
 		## - MLPClassifier:
 		param_grid = {
 		  'hidden_layer_sizes': [(50, 50), (100, 100), (50, 100, 50)],  # Architecture of hidden layers
