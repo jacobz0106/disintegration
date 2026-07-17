@@ -530,10 +530,28 @@ def main():
 		out_range = [f_values.min(), f_values.max()]
 		critical_values = np.linspace(out_range[0], out_range[1], numIntervals + 1)[1:-1]
 	else:
-		# SIR: use real Surge 2 data as the empirical Q_I distribution
+		# SIR: combine real Surge 2 empirical Q_I with simulated Q_I under the Beta
+		# priors on (beta, gamma). The empirical support alone [~4e-4, ~3e-3] is
+		# much narrower than the simulated support (up to ~0.02), which collapses
+		# most simulated samples into the last equivalence class. Widening the
+		# KDE support keeps the classifier training set balanced.
 		emp_path = '../data/SIR/empericalData/Surge2_QoI_30_days.csv'
-		f_values = pd.read_csv(emp_path)['case_prop_diff_over_T'].values
-		# Scott's rule bandwidth scaled to the data range
+		f_emp = pd.read_csv(emp_path)['case_prop_diff_over_T'].values
+
+		sim_cache = f'../data/SIR/qoi_sim_n{n}.csv'
+		if os.path.exists(sim_cache):
+			f_sim = pd.read_csv(sim_cache, index_col=0)['f'].values
+		else:
+			sir_prior = SIR_model(T=30, T0=10)
+			rng = np.random.default_rng(42)
+			betas  = rng.beta(12, 30, n).clip(0, 0.35)
+			gammas = rng.beta(6,  30, n).clip(0, 0.6)
+			f_sim = np.array([sir_prior.quantity_interest([b, g])
+			                  for b, g in zip(betas, gammas)])
+			os.makedirs(os.path.dirname(sim_cache), exist_ok=True)
+			pd.DataFrame({'f': f_sim}).to_csv(sim_cache)
+
+		f_values = np.concatenate([f_emp, f_sim])
 		bw = 1.06 * f_values.std() * len(f_values) ** (-0.2)
 		kde = KernelDensity(kernel='gaussian', bandwidth=bw).fit(f_values.reshape(-1, 1))
 		x_grid = np.linspace(f_values.min(), f_values.max(), 1000)
