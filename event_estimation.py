@@ -281,12 +281,22 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 	needs_gradient = (model_name == 'PPSVMG')
 	data_cached = os.path.exists(file_df) and (not needs_gradient or os.path.exists(file_dQ))
 
+	dQ = None
 	if data_cached:
 		df = pd.read_csv(file_df, index_col=0).reset_index(drop=True)
 		Label = df['Label'].values
 		dfTrain = df.iloc[:, :-2].values
-		dQ = (pd.read_csv(file_dQ, header=None).values.tolist()) if needs_gradient else None
-	else:
+		if needs_gradient:
+			dq_raw = pd.read_csv(file_dQ, header=None)
+			# Older code saved dQ as a Series-of-lists which serialised to a
+			# single object column like "[0.011, -0.011]". Detect that shape
+			# and force regeneration — SVM_Penalized cannot normalise strings.
+			if dq_raw.select_dtypes(include='object').shape[1] > 0:
+				print(f"[data-cache] regenerating {file_dQ}: stringified gradient cells detected")
+				data_cached = False
+			else:
+				dQ = dq_raw.values.tolist()
+	if not data_cached:
 		if sample_method == 'POF':
 			dataSIP.generate_POF(n=n, CONST_a=2, iniPoints=5, sampleCriteria='k-dDarts')
 		else:
@@ -303,7 +313,12 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 		os.makedirs(os.path.dirname(file_df), exist_ok=True)
 		dataSIP.df.to_csv(file_df)
 		if needs_gradient and dQ is not None and dQ is not False:
-			dq_arr = dQ.values if hasattr(dQ, 'values') else np.array(dQ)
+			# Coerce Series-of-lists / Series-of-arrays to a rectangular
+			# numeric ndarray so each row becomes one column-per-partial.
+			# Without this, to_csv writes stringified lists that cannot be
+			# reloaded (root cause of the SIR PPSVMG readonly-cache bug).
+			rows = dQ.values if hasattr(dQ, 'values') else dQ
+			dq_arr = np.vstack([np.asarray(row, dtype=float) for row in rows])
 			if dq_arr.size > 0:
 				pd.DataFrame(dq_arr).to_csv(file_dQ, header=False, index=False)
 
