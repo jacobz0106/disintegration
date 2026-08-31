@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import matplotlib
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import GridSearchCV, cross_val_score, KFold, train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 import time
 from sklearn.neural_network import MLPRegressor
 from scipy.stats import truncnorm
@@ -84,7 +86,9 @@ def perform_grid_search_cv(model, param_grid, X, y, cv=5,n_jobs=1):
 	# count >= n_splits. Fall back to plain KFold when that isn't achievable.
 	if min_class_count < 2:
 		cv = KFold(n_splits=2, shuffle=True, random_state=0)
-	grid_search = GridSearchCV(model, param_grid, cv=cv, scoring='accuracy', verbose = 0, n_jobs = n_jobs)
+	# balanced_accuracy avoids the failure mode where a majority-class-only
+	# classifier scores well under 'accuracy' on skewed KDE-derived classes.
+	grid_search = GridSearchCV(model, param_grid, cv=cv, scoring='balanced_accuracy', verbose = 0, n_jobs = n_jobs)
 	# Fit the grid search to the data
 	grid_search.fit(X, y)
 	# Get the best model with tuned hyperparameters
@@ -218,7 +222,7 @@ def accuracyComparisonNaive(example, quantity_of_interest, gradientFunction, eve
 				event_probability += equivalenceSpace_probability * disintegrationConditional
 			estimationMatrix[r, i] = event_probability
 			print('n,r:',[n,r])
-	filenamePredict = f'Results/Simulation/{example}/Estimation_interval_{len(critical_values)+1}_Naive.csv'
+	filenamePredict = f'../Results/Simulation/{example}/Estimation_interval_{len(critical_values)+1}_Naive.csv'
 	header_string = ','.join(str(i) for i in N)
 	np.savetxt(filenamePredict, estimationMatrix, delimiter=",", header = header_string)
 
@@ -352,14 +356,20 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 		counts_y = np.bincount(y_train)
 		min_class_train = int(counts_y[counts_y > 0].min())
 		use_early_stopping = min_class_train >= 4
-		model = MLPClassifier(early_stopping=use_early_stopping, validation_fraction=0.1)
-		## - MLPClassifier:
+		# StandardScaler in front of the MLP: without it, small-magnitude inputs
+		# (e.g. SIR's [0,0.35]x[0,0.6]) leave the network stuck predicting the
+		# majority class, which silently zeros out unpredicted equivalence
+		# classes in the disintegration sum.
+		model = Pipeline([
+			('scaler', StandardScaler()),
+			('mlp', MLPClassifier(early_stopping=use_early_stopping, validation_fraction=0.1)),
+		])
 		param_grid = {
-		  'hidden_layer_sizes': [(50, 50), (100, 100), (50, 100, 50)],  # Architecture of hidden layers
-		  'activation': ['logistic', 'tanh', 'relu'],  # Activation function
-		  'alpha': [0.0001, 0.001, 0.01],  # L2 regularization term
-		  'learning_rate_init': [0.001, 0.01, 0.1],  # Initial learning rate
-		  'max_iter': [3000, 5000, 10000],  # Maximum number of iterations
+		  'mlp__hidden_layer_sizes': [(64, 64), (128, 128)],
+		  'mlp__activation': ['relu', 'tanh'],
+		  'mlp__alpha': [1e-4, 1e-3],
+		  'mlp__learning_rate_init': [1e-3, 1e-2],
+		  'mlp__max_iter': [3000],
 		}
 		best_model = perform_grid_search_cv(model, param_grid, X_train, y_train,n_jobs=1)
 
@@ -771,7 +781,7 @@ def main():
 	db_path=db_path,
 	)
 
-	#accuracyComparisonNaive(example, quantity_of_interest, gradientFunction, event, N, domains, critical_values,kde_cdf, repeat  = 30)
+	# accuracyComparisonNaive(example, quantity_of_interest, gradientFunction, event, N, domains, critical_values,kde_cdf, repeat  = 30)
 
 	# print('---')
 	# PPSVMG_test(1000,2000, event, quantity_of_interest, gradientFunction, critical_values, domains, sample_method= 'Random')
