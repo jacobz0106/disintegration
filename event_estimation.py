@@ -171,16 +171,22 @@ def check_points_in_nd_domain(points, lower_bounds, upper_bounds):
 
 
 def kde_estimation(empiricalOutput):
-	kde = KernelDensity(kernel='linear', bandwidth=0.2).fit(empiricalOutput)
-	# Evaluate KDE on a grid
-	x_grid = np.linspace(min(empiricalOutput.reshape(-1)), max(empiricalOutput.reshape(-1)), 1000)
+	bw = 0.2
+	kde = KernelDensity(kernel='linear', bandwidth=bw).fit(empiricalOutput)
+	# Extend integration grid past the observed support by 1.5 bandwidths so
+	# the linear-kernel tent (finite support = [x - bw, x + bw]) is fully
+	# captured. Without this, up to 20% of KDE mass leaks past
+	# [min, max] and gets falsely credited to the last equivalence class via
+	# equivalenceSpaceProbability's "1 - kde_cdf(last threshold)" formula.
+	# Then normalize so cdf ends at exactly 1.
+	x_min = float(min(empiricalOutput.reshape(-1)))
+	x_max = float(max(empiricalOutput.reshape(-1)))
+	x_grid = np.linspace(x_min - 1.5 * bw, x_max + 1.5 * bw, 4000)
 
-	# Compute PDF and CDF
 	log_pdf = kde.score_samples(x_grid[:, None])
 	pdf = np.exp(log_pdf)
-	cdf = cumtrapz(pdf, x_grid, initial=0)  # CDF by numerical integration
-
-	# Create CDF interpolation function
+	cdf = cumtrapz(pdf, x_grid, initial=0)
+	cdf = cdf / cdf[-1]
 	cdf_function = interp1d(x_grid, cdf, kind='linear', fill_value="extrapolate")
 
 	return cdf_function
