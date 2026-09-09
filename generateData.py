@@ -13,6 +13,7 @@ from scipy.interpolate import interp1d
 import sys
 import pandas as pd
 from lotkaVolterra import *
+from SIR import SIR_model
 import os
 
 import numpy as np
@@ -107,12 +108,38 @@ def main():
 		lotka = lotkaVolterra()
 		quantity_of_interest=lotka.quantity_interest
 		gradientFunction=lotka.gradients
+	elif example == 'SIR':
+		domains = [[0, 0.35], [0, 0.6]]
+		sir = SIR_model(T=30, T0=10)
+		quantity_of_interest = sir.quantity_interest
+		gradientFunction = sir.gradients
 	else:
 		raise ValueError('Not implemented.')
 
-	dataSIP = SIP_Data(quantity_of_interest, gradientFunction, 1, len(domains) , *domains)
-	dataSIP.generate_Uniform(n, Gradient = False)
-	out_range = [min(np.array(dataSIP.df['f']).reshape(-1)),max(np.array(dataSIP.df['f']).reshape(-1))]
+	# For SIR the range must match event_estimation.py's KDE input
+	# (empirical Surge 2 QoI + Beta-prior-clipped simulated QoI). Deriving
+	# out_range from a uniform draw here would place the classifier and
+	# estimator on different label partitions.
+	if example == 'SIR':
+		emp_path = '../data/SIR/empericalData/Surge2_QoI_30_days.csv'
+		f_emp = pd.read_csv(emp_path)['case_prop_diff_over_T'].values
+		sim_cache = f'../data/SIR/qoi_sim_n{n}.csv'
+		if os.path.exists(sim_cache):
+			f_sim = pd.read_csv(sim_cache, index_col=0)['f'].values
+		else:
+			rng = np.random.default_rng(42)
+			betas  = rng.beta(12, 30, n).clip(0, 0.35)
+			gammas = rng.beta(6,  30, n).clip(0, 0.6)
+			f_sim = np.array([quantity_of_interest([b, g])
+			                  for b, g in zip(betas, gammas)])
+			os.makedirs(os.path.dirname(sim_cache), exist_ok=True)
+			pd.DataFrame({'f': f_sim}).to_csv(sim_cache)
+		f_values = np.concatenate([f_emp, f_sim])
+		out_range = [float(f_values.min()), float(f_values.max())]
+	else:
+		dataSIP = SIP_Data(quantity_of_interest, gradientFunction, 1, len(domains) , *domains)
+		dataSIP.generate_Uniform(n, Gradient = False)
+		out_range = [min(np.array(dataSIP.df['f']).reshape(-1)),max(np.array(dataSIP.df['f']).reshape(-1))]
 	critical_values = np.linspace(out_range[0], out_range[1], numIntervals + 1)[1:-1]
 
 	# ------------------------------------------------------------------------------#

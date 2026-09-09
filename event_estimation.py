@@ -187,7 +187,6 @@ def kde_estimation(empiricalOutput):
 
 
 def equivalenceSpaceProbability(kde_cdf, critical_values, i):
-	print(i)
 	if i > len(critical_values):
 		raise ValueError('index out of bound.')
 	if i == 0:
@@ -378,14 +377,23 @@ def single_run_sqlite(out_suffix, n, r, quantity_of_interest, gradientFunction, 
 	Labels = best_model.predict(X_test)
 	Within_events = check_points_in_nd_domain(np.array(X_test), np.array(event)[:, 0], np.array(event)[:, 1])
 
+	# Track cond[k] and count[k] per predicted class so downstream analysis
+	# can recompute event_probability with a different KDE without needing
+	# to refit the classifier or regenerate the test set.
 	event_probability = 0
+	cond_per_class = {}
+	count_per_class = {}
 	for equivalenceSpace in np.unique(Labels):
-		disintegrationConditional = np.sum(
-			np.logical_and(Labels == equivalenceSpace, Within_events)) / np.sum(Labels == equivalenceSpace)
+		mask = Labels == equivalenceSpace
+		denom = int(mask.sum())
+		numer = int(np.logical_and(mask, Within_events).sum())
+		cond = float(numer) / float(denom) if denom > 0 else 0.0
+		cond_per_class[int(equivalenceSpace)] = cond
+		count_per_class[int(equivalenceSpace)] = denom
 		equivalenceSpace_probability = float(equivalenceSpaceProbability(kde_cdf, critical_values, equivalenceSpace))
-		event_probability += equivalenceSpace_probability * disintegrationConditional
+		event_probability += equivalenceSpace_probability * cond
 
-	return key, predictionAccuracy, event_probability
+	return key, predictionAccuracy, event_probability, cond_per_class, count_per_class
 
 def _diagnose_db_writability(db_path):
 	"""Diagnose SQLite db path writability before starting expensive compute.
@@ -549,10 +557,15 @@ def accuracyComparison_parallel_repeat(
 			for result in tqdm(pool.imap_unordered(run_single_task, args), total=len(args)):
 				if result is None:
 					continue
-				key, acc, est = result
+				key, acc, est, cond_per_class, count_per_class = result
 				results.append((key, acc, est))
 				try:
-					db[key] = {'accuracy': acc, 'estimation': est}
+					db[key] = {
+						'accuracy': acc,
+						'estimation': est,
+						'cond_per_class': cond_per_class,
+						'count_per_class': count_per_class,
+					}
 					pending.append(key)
 				except Exception as e:
 					print(f"[db-write-error] failed to stage key {key}: {e}")
@@ -749,10 +762,19 @@ def main():
 		f_values = np.concatenate([f_emp, f_sim])
 		bw = 1.06 * f_values.std() * len(f_values) ** (-0.2)
 		kde = KernelDensity(kernel='gaussian', bandwidth=bw).fit(f_values.reshape(-1, 1))
-		x_grid = np.linspace(f_values.min(), f_values.max(), 1000)
+		# Extend the integration grid past the observed support by 6 bandwidths
+		# so the Gaussian tails are captured; without this ~15% of KDE mass
+		# leaks past [f_values.min(), f_values.max()] and, via the
+		# "1 - kde_cdf(last threshold)" formula in equivalenceSpaceProbability,
+		# gets falsely dumped into the last equivalence class. Also normalize
+		# so cdf ends at exactly 1 (the truncated integral rounds off).
+		xL = float(f_values.min()) - 6.0 * bw
+		xR = float(f_values.max()) + 6.0 * bw
+		x_grid = np.linspace(xL, xR, 4000)
 		log_pdf = kde.score_samples(x_grid[:, None])
 		pdf = np.exp(log_pdf)
 		cdf_vals = cumtrapz(pdf, x_grid, initial=0)
+		cdf_vals = cdf_vals / cdf_vals[-1]
 		kde_cdf = interp1d(x_grid, cdf_vals, kind='linear', fill_value='extrapolate')
 		out_range = [float(f_values.min()), float(f_values.max())]
 		critical_values = np.linspace(out_range[0], out_range[1], numIntervals + 1)[1:-1]

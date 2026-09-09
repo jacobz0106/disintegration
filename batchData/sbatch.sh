@@ -1,6 +1,9 @@
 #!/bin/bash
-#!/bin/bash
-examples=("lotka")
+# Submit data-generation jobs for all four examples across both sampling
+# methods. Each per-job script (generateData.py under the hood) skips
+# (n, interval, repeat) combos whose dQ_Train CSV already exists, so re-running
+# this driver only fills in gaps.
+examples=("function2" "brusselator" "lotka" "SIR")
 samples=(20 10 5)
 methods=("Random" "POF")
 

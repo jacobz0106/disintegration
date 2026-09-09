@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define parameters
-examples=("function2" "brusselator" "lotka")
+examples=("function2" "brusselator" "lotka" "SIR")
 numbers=(5 10 20)
 tags=("POF" "Random")
 

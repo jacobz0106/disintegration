@@ -66,7 +66,7 @@ class POFdarts(object):
 		self.y.append(z)
 		Q = self.gradient(newPoint)
 		self.Q.append(Q)
-		# 
+		#
 		r = np.min(np.abs(z - np.array(self.critical_values))) /( self.CONST_a*np.max([np.linalg.norm(Q),self.lower_bound]))
 		self.radius.append(r)
 		self.df.append(newPoint)
