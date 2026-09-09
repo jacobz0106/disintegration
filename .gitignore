@@ -1,0 +1,14 @@
+# Generated plot artifacts -- source lives in paper_plots_*.py / make_plot.py
+Plots/
+
+# Python cruft
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
