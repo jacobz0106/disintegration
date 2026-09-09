@@ -172,6 +172,17 @@ def check_points_in_nd_domain(points, lower_bounds, upper_bounds):
 
 def kde_estimation(empiricalOutput):
 	bw = 0.2
+	# Guard against NaN/inf values in the KDE source. Some cluster runs
+	# generated fresh kde_source CSVs with a few pathological (e.g. lotka
+	# ODE blow-up) points whose QoI came back non-finite. Silently drop
+	# them rather than crash sklearn's KDE fitter.
+	arr = np.asarray(empiricalOutput, dtype=float)
+	finite_mask = np.isfinite(arr).all(axis=1) if arr.ndim > 1 else np.isfinite(arr)
+	if not finite_mask.all():
+		n_bad = int((~finite_mask).sum())
+		print(f"[kde_estimation] dropping {n_bad} non-finite sample(s) from KDE source")
+		arr = arr[finite_mask]
+	empiricalOutput = arr
 	kde = KernelDensity(kernel='linear', bandwidth=bw).fit(empiricalOutput)
 	# Extend integration grid past the observed support by 1.5 bandwidths so
 	# the linear-kernel tent (finite support = [x - bw, x + bw]) is fully
@@ -740,8 +751,9 @@ def main():
 			f_values = np.array(dataSIP.df['f'])
 			os.makedirs(os.path.dirname(kde_source_file), exist_ok=True)
 			dataSIP.df[['f']].to_csv(kde_source_file)
+		f_values = f_values[np.isfinite(f_values)]
 		kde_cdf = kde_estimation(f_values.reshape(-1, 1))
-		out_range = [f_values.min(), f_values.max()]
+		out_range = [float(f_values.min()), float(f_values.max())]
 		critical_values = np.linspace(out_range[0], out_range[1], numIntervals + 1)[1:-1]
 	else:
 		# SIR: combine real Surge 2 empirical Q_I with simulated Q_I under the Beta
@@ -766,6 +778,9 @@ def main():
 			pd.DataFrame({'f': f_sim}).to_csv(sim_cache)
 
 		f_values = np.concatenate([f_emp, f_sim])
+		# Drop non-finite Q values before fitting KDE (SIR ODE may blow up
+		# for a very high-beta / low-gamma sample).
+		f_values = f_values[np.isfinite(f_values)]
 		bw = 1.06 * f_values.std() * len(f_values) ** (-0.2)
 		kde = KernelDensity(kernel='gaussian', bandwidth=bw).fit(f_values.reshape(-1, 1))
 		# Extend the integration grid past the observed support by 6 bandwidths
